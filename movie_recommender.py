@@ -37,6 +37,8 @@ last_save_error: Optional[str] = None
 
 # Global variables
 movies: List[Dict[str, Any]] = []  # Main movie dataset
+movie_dict: Dict[Tuple[str, int], Dict[str, Any]] = {}  # For O(1) movie lookups by (name.lower(), year)
+existing_titles: Set[str] = set()  # For unique title generation
 favorites: List[Dict[str, Any]] = []  # List of favorite movies
 _favorites_set: Set[Tuple[str, int]] = set()  # For O(1) lookups
 
@@ -382,14 +384,14 @@ def add_movie(movie: dict) -> bool:
     if not validate_movie_schema(movie):
         logger.warning("Invalid movie schema; not added.")
         return False
-    # avoid duplicates by exact name+year
-    existing = {(m['name'].lower(), m['year']) for m in movies}
     key = (movie['name'].lower(), movie['year'])
-    if key in existing:
+    if key in movie_dict:
         logger.info("Movie %s (%s) already exists; skipping.", movie['name'], movie['year'])
         return False
     movies.append(movie)
     ensure_search_fields(movie)
+    movie_dict[key] = movie
+    existing_titles.add(movie['name'])
     return True
 
 
@@ -421,11 +423,10 @@ def generate_synthetic_movies(target_count: int = 600, start_year: int = 2019, e
     """Generate synthetic but realistic-looking movies to grow the dataset.
     All generated movies will have years between start_year and end_year inclusive.
     """
-    existing_titles = {m['name'] for m in movies}
     generated = []
     random.seed(42)  # reproducible
     while len(movies) + len(generated) < target_count:
-        name = _unique_title(existing_titles | {m['name'] for m in generated})
+        name = _unique_title(existing_titles)
         year = random.randint(start_year, end_year)
         genre = random.choice(GENRES)
         category = random.choice(CATEGORIES)
@@ -652,6 +653,11 @@ def expand_dataset_if_needed(min_total: int = 600, auto_save: bool = False, save
     logger.info("Dataset has %d movies; generating %d synthetic movies (years 2019–2025)", len(movies), needed)
     generated = generate_synthetic_movies(target_count=min_total, start_year=2019, end_year=2025)
     movies.extend(generated)
+    # Update global lookups for new movies
+    for m in generated:
+        key = (m['name'].lower(), m['year'])
+        movie_dict[key] = m
+        existing_titles.add(m['name'])
     logger.info("Dataset expanded to %d movies.", len(movies))
     if auto_save:
         out = save_path or 'movies_expanded_2019_2025.json'
@@ -676,6 +682,9 @@ def ensure_search_fields(movie: dict) -> None:
 for m in movies:
     try:
         ensure_search_fields(m)
+        key = (m['name'].lower(), m['year'])
+        movie_dict[key] = m
+        existing_titles.add(m['name'])
     except Exception:
         logger.exception("Failed to initialize search fields for movie: %s", m.get('name'))
 
