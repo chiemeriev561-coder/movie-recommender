@@ -1,0 +1,23 @@
+[
+  {
+    "amount": "12.50",
+    "description": "Lunch",
+    "category": "Food",
+    "date": "2025-12-01",
+    "notes": "sandwich"
+  },
+  {
+    "amount": "5",
+    "description": "Bus",
+    "category": "Transport",
+    "date": "2025-12-02",
+    "notes": null
+  },
+  {
+    "amount": "20.0",
+    "description": "Movie",
+    "category": "Entertainment",
+    "date": "2025-03-12",
+    "notes": null
+  }
+]
