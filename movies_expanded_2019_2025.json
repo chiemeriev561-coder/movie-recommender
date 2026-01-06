@@ -1,0 +1,4802 @@
+[
+  {
+    "name": "Superman",
+    "year": 1978,
+    "category": "Blockbuster",
+    "genre": "Action",
+    "box_office_millions": 134.2,
+    "rating": 7.9
+  },
+  {
+    "name": "The Avengers",
+    "year": 2012,
+    "category": "Blockbuster",
+    "genre": "Action",
+    "box_office_millions": 1518.8,
+    "rating": 8.4
+  },
+  {
+    "name": "Man From Toronto",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Action/Comedy",
+    "box_office_millions": 12.3,
+    "rating": 6.1
+  },
+  {
+    "name": "Black Widow",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Action",
+    "box_office_millions": 379.8,
+    "rating": 6.8
+  },
+  {
+    "name": "Shazam!",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Family/Fantasy",
+    "box_office_millions": 364.6,
+    "rating": 7.1
+  },
+  {
+    "name": "John Wick",
+    "year": 2014,
+    "category": "Action Franchise",
+    "genre": "Action/Thriller",
+    "box_office_millions": 86.0,
+    "rating": 7.4
+  },
+  {
+    "name": "Spider-Man: No Way Home",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Action/Adventure",
+    "box_office_millions": 1932.0,
+    "rating": 8.1
+  },
+  {
+    "name": "Inception",
+    "year": 2010,
+    "category": "Prestige",
+    "genre": "Sci-Fi",
+    "box_office_millions": 829.9,
+    "rating": 8.8
+  },
+  {
+    "name": "The Godfather",
+    "year": 1972,
+    "category": "Classic",
+    "genre": "Crime/Drama",
+    "box_office_millions": 246.1,
+    "rating": 9.2
+  },
+  {
+    "name": "Parasite",
+    "year": 2019,
+    "category": "Indie",
+    "genre": "Thriller/Drama",
+    "box_office_millions": 258.8,
+    "rating": 8.6
+  },
+  {
+    "name": "La La Land",
+    "year": 2016,
+    "category": "Musical",
+    "genre": "Musical/Romance",
+    "box_office_millions": 446.1,
+    "rating": 8.0
+  },
+  {
+    "name": "Toy Story",
+    "year": 1995,
+    "category": "Animation",
+    "genre": "Family/Animation",
+    "box_office_millions": 373.6,
+    "rating": 8.3
+  },
+  {
+    "name": "The Dark Knight",
+    "year": 2008,
+    "category": "Prestige",
+    "genre": "Action/Crime",
+    "box_office_millions": 1004.9,
+    "rating": 9.0
+  },
+  {
+    "name": "Forrest Gump",
+    "year": 1994,
+    "category": "Classic",
+    "genre": "Drama/Romance",
+    "box_office_millions": 678.2,
+    "rating": 8.8
+  },
+  {
+    "name": "The Shawshank Redemption",
+    "year": 1994,
+    "category": "Classic",
+    "genre": "Drama",
+    "box_office_millions": 58.3,
+    "rating": 9.3
+  },
+  {
+    "name": "Interstellar",
+    "year": 2014,
+    "category": "Prestige",
+    "genre": "Sci-Fi/Drama",
+    "box_office_millions": 677.5,
+    "rating": 8.6
+  },
+  {
+    "name": "Get Out",
+    "year": 2017,
+    "category": "Indie",
+    "genre": "Horror/Thriller",
+    "box_office_millions": 255.4,
+    "rating": 7.7
+  },
+  {
+    "name": "The Matrix",
+    "year": 1999,
+    "category": "Sci-Fi",
+    "genre": "Action/Sci-Fi",
+    "box_office_millions": 463.5,
+    "rating": 8.7
+  },
+  {
+    "name": "Titanic",
+    "year": 1997,
+    "category": "Romance/Blockbuster",
+    "genre": "Romance/Drama",
+    "box_office_millions": 2187.5,
+    "rating": 7.8
+  },
+  {
+    "name": "Spirited Away",
+    "year": 2001,
+    "category": "Animation",
+    "genre": "Fantasy/Animation",
+    "box_office_millions": 355.5,
+    "rating": 8.6
+  },
+  {
+    "name": "The Social Network",
+    "year": 2010,
+    "category": "Drama",
+    "genre": "Drama/Biography",
+    "box_office_millions": 224.9,
+    "rating": 7.7
+  },
+  {
+    "name": "Mad Max: Fury Road",
+    "year": 2015,
+    "category": "Action",
+    "genre": "Action/Adventure",
+    "box_office_millions": 378.9,
+    "rating": 8.1
+  },
+  {
+    "name": "City of God",
+    "year": 2002,
+    "category": "Indie",
+    "genre": "Crime/Drama",
+    "box_office_millions": 30.6,
+    "rating": 8.6
+  },
+  {
+    "name": "Coco",
+    "year": 2017,
+    "category": "Animation",
+    "genre": "Family/Animation",
+    "box_office_millions": 807.1,
+    "rating": 8.4
+  },
+  {
+    "name": "Silver Empire",
+    "year": 2019,
+    "category": "Indie",
+    "genre": "Family",
+    "box_office_millions": 49.1,
+    "rating": 5.5
+  },
+  {
+    "name": "Hidden Moment",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Fantasy",
+    "box_office_millions": 1201.5,
+    "rating": 6.1
+  },
+  {
+    "name": "Golden Reckoning",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Fantasy",
+    "box_office_millions": 46.0,
+    "rating": 6.6
+  },
+  {
+    "name": "Silver Edge",
+    "year": 2023,
+    "category": "Streaming",
+    "genre": "Romance",
+    "box_office_millions": 22.5,
+    "rating": 6.0
+  },
+  {
+    "name": "Silent Memory",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Romance",
+    "box_office_millions": 55.6,
+    "rating": 5.8
+  },
+  {
+    "name": "Burning Labyrinth",
+    "year": 2019,
+    "category": "Prestige",
+    "genre": "Comedy",
+    "box_office_millions": 19.4,
+    "rating": 9.1
+  },
+  {
+    "name": "Iron Journey",
+    "year": 2025,
+    "category": "Animation",
+    "genre": "Action",
+    "box_office_millions": 418.9,
+    "rating": 5.4
+  },
+  {
+    "name": "Shadow Protocol",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Horror",
+    "box_office_millions": 125.8,
+    "rating": 8.1
+  },
+  {
+    "name": "Electric Run",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Family",
+    "box_office_millions": 139.4,
+    "rating": 6.7
+  },
+  {
+    "name": "Endless Protocol",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 20.3,
+    "rating": 6.0
+  },
+  {
+    "name": "Silver River",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Thriller",
+    "box_office_millions": 42.0,
+    "rating": 5.9
+  },
+  {
+    "name": "Urban Hour",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Documentary",
+    "box_office_millions": 162.3,
+    "rating": 7.6
+  },
+  {
+    "name": "Broken City",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 622.5,
+    "rating": 5.8
+  },
+  {
+    "name": "Lonely Echo",
+    "year": 2020,
+    "category": "Other",
+    "genre": "Action",
+    "box_office_millions": 63.2,
+    "rating": 5.9
+  },
+  {
+    "name": "New Run",
+    "year": 2024,
+    "category": "Streaming",
+    "genre": "Thriller",
+    "box_office_millions": 32.8,
+    "rating": 6.4
+  },
+  {
+    "name": "Silver City",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Horror",
+    "box_office_millions": 12.3,
+    "rating": 7.0
+  },
+  {
+    "name": "First Light",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Romance",
+    "box_office_millions": 411.4,
+    "rating": 6.7
+  },
+  {
+    "name": "Final Valley",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Comedy",
+    "box_office_millions": 9.5,
+    "rating": 5.4
+  },
+  {
+    "name": "Silver Memory",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 119.3,
+    "rating": 8.0
+  },
+  {
+    "name": "Iron City",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Horror",
+    "box_office_millions": 863.6,
+    "rating": 6.0
+  },
+  {
+    "name": "Frozen Empire",
+    "year": 2024,
+    "category": "Other",
+    "genre": "Fantasy",
+    "box_office_millions": 53.4,
+    "rating": 7.2
+  },
+  {
+    "name": "Hidden Legacy",
+    "year": 2022,
+    "category": "Prestige",
+    "genre": "Drama",
+    "box_office_millions": 0.7,
+    "rating": 8.8
+  },
+  {
+    "name": "Frozen Journey",
+    "year": 2023,
+    "category": "Streaming",
+    "genre": "Adventure",
+    "box_office_millions": 25.4,
+    "rating": 5.4
+  },
+  {
+    "name": "Silver Legacy",
+    "year": 2025,
+    "category": "Franchise",
+    "genre": "Biography",
+    "box_office_millions": 616.8,
+    "rating": 6.5
+  },
+  {
+    "name": "Burning Memory",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Adventure",
+    "box_office_millions": 920.1,
+    "rating": 7.8
+  },
+  {
+    "name": "Midnight Dawn",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Thriller",
+    "box_office_millions": 161.4,
+    "rating": 5.8
+  },
+  {
+    "name": "Last Run",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Comedy",
+    "box_office_millions": 442.5,
+    "rating": 5.2
+  },
+  {
+    "name": "Burning Storm",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Drama",
+    "box_office_millions": 33.0,
+    "rating": 8.3
+  },
+  {
+    "name": "Broken Journey",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Documentary",
+    "box_office_millions": 192.9,
+    "rating": 9.3
+  },
+  {
+    "name": "Burning Light",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Sci-Fi",
+    "box_office_millions": 287.4,
+    "rating": 8.5
+  },
+  {
+    "name": "Forgotten Valley",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Comedy",
+    "box_office_millions": 11.2,
+    "rating": 6.2
+  },
+  {
+    "name": "Blue Storm",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Documentary",
+    "box_office_millions": 0.4,
+    "rating": 7.5
+  },
+  {
+    "name": "Crimson Code",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Action",
+    "box_office_millions": 66.2,
+    "rating": 6.8
+  },
+  {
+    "name": "First Moment",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Sci-Fi",
+    "box_office_millions": 149.7,
+    "rating": 8.8
+  },
+  {
+    "name": "Blue Run",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 94.6,
+    "rating": 6.4
+  },
+  {
+    "name": "Hidden Empire",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Romance",
+    "box_office_millions": 84.8,
+    "rating": 6.6
+  },
+  {
+    "name": "Frozen Echo",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Biography",
+    "box_office_millions": 97.6,
+    "rating": 6.4
+  },
+  {
+    "name": "Lonely Empire",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Sci-Fi",
+    "box_office_millions": 26.8,
+    "rating": 5.5
+  },
+  {
+    "name": "Forgotten Code",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Comedy",
+    "box_office_millions": 161.6,
+    "rating": 9.1
+  },
+  {
+    "name": "Hidden Echo",
+    "year": 2024,
+    "category": "Other",
+    "genre": "Fantasy",
+    "box_office_millions": 3.1,
+    "rating": 5.3
+  },
+  {
+    "name": "Burning Code",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Romance",
+    "box_office_millions": 96.3,
+    "rating": 9.2
+  },
+  {
+    "name": "Crimson Memory",
+    "year": 2022,
+    "category": "Prestige",
+    "genre": "Action",
+    "box_office_millions": 53.1,
+    "rating": 9.0
+  },
+  {
+    "name": "Forgotten Legacy",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Family",
+    "box_office_millions": 895.9,
+    "rating": 6.9
+  },
+  {
+    "name": "Desert Island",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Sci-Fi",
+    "box_office_millions": 43.6,
+    "rating": 5.2
+  },
+  {
+    "name": "Frozen Storm",
+    "year": 2019,
+    "category": "Indie",
+    "genre": "Family",
+    "box_office_millions": 11.5,
+    "rating": 7.0
+  },
+  {
+    "name": "Distant Valley",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Action",
+    "box_office_millions": 98.5,
+    "rating": 6.6
+  },
+  {
+    "name": "Iron Protocol",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Sci-Fi",
+    "box_office_millions": 24.1,
+    "rating": 9.2
+  },
+  {
+    "name": "Iron Echo",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Comedy",
+    "box_office_millions": 131.5,
+    "rating": 8.4
+  },
+  {
+    "name": "Lonely Journey",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Biography",
+    "box_office_millions": 289.6,
+    "rating": 5.9
+  },
+  {
+    "name": "Final Moment",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Horror",
+    "box_office_millions": 63.3,
+    "rating": 8.9
+  },
+  {
+    "name": "Golden Dawn",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Documentary",
+    "box_office_millions": 996.2,
+    "rating": 6.2
+  },
+  {
+    "name": "New Valley",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Drama",
+    "box_office_millions": 176.2,
+    "rating": 8.1
+  },
+  {
+    "name": "Electric Legacy",
+    "year": 2020,
+    "category": "Other",
+    "genre": "Animation",
+    "box_office_millions": 108.7,
+    "rating": 6.1
+  },
+  {
+    "name": "Silver Valley",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Biography",
+    "box_office_millions": 111.0,
+    "rating": 8.3
+  },
+  {
+    "name": "Hidden Promise",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Comedy",
+    "box_office_millions": 1497.7,
+    "rating": 6.5
+  },
+  {
+    "name": "Endless Game",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Family",
+    "box_office_millions": 40.8,
+    "rating": 7.2
+  },
+  {
+    "name": "First Valley",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Horror",
+    "box_office_millions": 10.3,
+    "rating": 7.2
+  },
+  {
+    "name": "First Echo",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Thriller",
+    "box_office_millions": 26.3,
+    "rating": 8.4
+  },
+  {
+    "name": "Broken Light",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Fantasy",
+    "box_office_millions": 390.6,
+    "rating": 5.0
+  },
+  {
+    "name": "Golden Edge",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Fantasy",
+    "box_office_millions": 1677.5,
+    "rating": 7.7
+  },
+  {
+    "name": "Final Threshold",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Action",
+    "box_office_millions": 73.0,
+    "rating": 8.3
+  },
+  {
+    "name": "Crimson River",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Biography",
+    "box_office_millions": 33.3,
+    "rating": 6.2
+  },
+  {
+    "name": "Red Threshold",
+    "year": 2023,
+    "category": "Streaming",
+    "genre": "Family",
+    "box_office_millions": 46.3,
+    "rating": 5.8
+  },
+  {
+    "name": "Broken Memory",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Action",
+    "box_office_millions": 36.8,
+    "rating": 6.2
+  },
+  {
+    "name": "Secret Moment",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Family",
+    "box_office_millions": 49.7,
+    "rating": 5.6
+  },
+  {
+    "name": "Desert Empire",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Action",
+    "box_office_millions": 94.2,
+    "rating": 5.7
+  },
+  {
+    "name": "Forgotten River",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Adventure",
+    "box_office_millions": 45.6,
+    "rating": 5.1
+  },
+  {
+    "name": "New Sky",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Horror",
+    "box_office_millions": 14.0,
+    "rating": 7.7
+  },
+  {
+    "name": "Electric Hour",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Romance",
+    "box_office_millions": 883.2,
+    "rating": 6.9
+  },
+  {
+    "name": "Silent Empire",
+    "year": 2021,
+    "category": "Franchise",
+    "genre": "Drama",
+    "box_office_millions": 963.3,
+    "rating": 6.8
+  },
+  {
+    "name": "Hidden Game",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Thriller",
+    "box_office_millions": 709.9,
+    "rating": 6.5
+  },
+  {
+    "name": "Distant Empire",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Documentary",
+    "box_office_millions": 12.7,
+    "rating": 7.5
+  },
+  {
+    "name": "Silent Valley",
+    "year": 2025,
+    "category": "Animation",
+    "genre": "Fantasy",
+    "box_office_millions": 650.3,
+    "rating": 7.6
+  },
+  {
+    "name": "Urban Reckoning",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Romance",
+    "box_office_millions": 1900.3,
+    "rating": 8.8
+  },
+  {
+    "name": "Iron Labyrinth",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Comedy",
+    "box_office_millions": 811.0,
+    "rating": 6.8
+  },
+  {
+    "name": "Urban Threshold",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Romance",
+    "box_office_millions": 273.1,
+    "rating": 5.4
+  },
+  {
+    "name": "Shadow Moment",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Drama",
+    "box_office_millions": 577.7,
+    "rating": 7.2
+  },
+  {
+    "name": "Silent Legacy",
+    "year": 2021,
+    "category": "Prestige",
+    "genre": "Sci-Fi",
+    "box_office_millions": 157.2,
+    "rating": 8.5
+  },
+  {
+    "name": "Lonely City",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Animation",
+    "box_office_millions": 200.2,
+    "rating": 6.7
+  },
+  {
+    "name": "Frozen Memory",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Comedy",
+    "box_office_millions": 103.1,
+    "rating": 7.2
+  },
+  {
+    "name": "Lonely Protocol",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Adventure",
+    "box_office_millions": 33.6,
+    "rating": 5.8
+  },
+  {
+    "name": "New Promise",
+    "year": 2019,
+    "category": "Streaming",
+    "genre": "Action",
+    "box_office_millions": 49.2,
+    "rating": 7.1
+  },
+  {
+    "name": "Burning Protocol",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Romance",
+    "box_office_millions": 522.3,
+    "rating": 7.5
+  },
+  {
+    "name": "Shadow Island",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Sci-Fi",
+    "box_office_millions": 32.8,
+    "rating": 5.0
+  },
+  {
+    "name": "Burning Empire",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Romance",
+    "box_office_millions": 8.8,
+    "rating": 8.4
+  },
+  {
+    "name": "Distant City",
+    "year": 2019,
+    "category": "Streaming",
+    "genre": "Fantasy",
+    "box_office_millions": 45.9,
+    "rating": 5.4
+  },
+  {
+    "name": "Final City",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Fantasy",
+    "box_office_millions": 603.5,
+    "rating": 8.9
+  },
+  {
+    "name": "Forgotten Game",
+    "year": 2025,
+    "category": "Franchise",
+    "genre": "Family",
+    "box_office_millions": 438.2,
+    "rating": 8.7
+  },
+  {
+    "name": "Forgotten Memory",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Animation",
+    "box_office_millions": 51.9,
+    "rating": 7.6
+  },
+  {
+    "name": "Silver Journey",
+    "year": 2025,
+    "category": "Franchise",
+    "genre": "Adventure",
+    "box_office_millions": 494.9,
+    "rating": 6.7
+  },
+  {
+    "name": "Forgotten Protocol",
+    "year": 2024,
+    "category": "Streaming",
+    "genre": "Horror",
+    "box_office_millions": 13.6,
+    "rating": 6.1
+  },
+  {
+    "name": "Red Protocol",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Drama",
+    "box_office_millions": 19.2,
+    "rating": 5.5
+  },
+  {
+    "name": "New Protocol",
+    "year": 2022,
+    "category": "Indie",
+    "genre": "Romance",
+    "box_office_millions": 108.6,
+    "rating": 6.5
+  },
+  {
+    "name": "New Threshold",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Adventure",
+    "box_office_millions": 947.1,
+    "rating": 6.1
+  },
+  {
+    "name": "Burning Run",
+    "year": 2022,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 1888.3,
+    "rating": 6.9
+  },
+  {
+    "name": "Shadow Threshold",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Family",
+    "box_office_millions": 496.1,
+    "rating": 7.1
+  },
+  {
+    "name": "Last Island",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Horror",
+    "box_office_millions": 97.2,
+    "rating": 8.0
+  },
+  {
+    "name": "Urban Moment",
+    "year": 2025,
+    "category": "Animation",
+    "genre": "Romance",
+    "box_office_millions": 156.9,
+    "rating": 6.6
+  },
+  {
+    "name": "Final Game",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Action",
+    "box_office_millions": 118.4,
+    "rating": 8.7
+  },
+  {
+    "name": "Golden Hour",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Drama",
+    "box_office_millions": 92.4,
+    "rating": 5.2
+  },
+  {
+    "name": "Shadow Labyrinth",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Animation",
+    "box_office_millions": 67.6,
+    "rating": 8.1
+  },
+  {
+    "name": "First Threshold",
+    "year": 2021,
+    "category": "Prestige",
+    "genre": "Comedy",
+    "box_office_millions": 4.0,
+    "rating": 8.3
+  },
+  {
+    "name": "Electric Code",
+    "year": 2024,
+    "category": "Other",
+    "genre": "Comedy",
+    "box_office_millions": 191.5,
+    "rating": 5.1
+  },
+  {
+    "name": "Silent Code",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Action",
+    "box_office_millions": 169.3,
+    "rating": 6.4
+  },
+  {
+    "name": "Urban Empire",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Sci-Fi",
+    "box_office_millions": 139.9,
+    "rating": 8.9
+  },
+  {
+    "name": "Broken Game",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Family",
+    "box_office_millions": 111.9,
+    "rating": 7.9
+  },
+  {
+    "name": "Endless Empire",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Action",
+    "box_office_millions": 115.2,
+    "rating": 8.2
+  },
+  {
+    "name": "Shadow Sky",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Sci-Fi",
+    "box_office_millions": 1204.6,
+    "rating": 8.5
+  },
+  {
+    "name": "Last Empire",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Adventure",
+    "box_office_millions": 170.1,
+    "rating": 7.1
+  },
+  {
+    "name": "Hidden Run",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Action",
+    "box_office_millions": 106.6,
+    "rating": 7.3
+  },
+  {
+    "name": "Golden Valley",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Thriller",
+    "box_office_millions": 1706.7,
+    "rating": 8.5
+  },
+  {
+    "name": "Hidden Threshold",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Biography",
+    "box_office_millions": 92.0,
+    "rating": 5.5
+  },
+  {
+    "name": "Distant Hour",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Documentary",
+    "box_office_millions": 183.9,
+    "rating": 7.7
+  },
+  {
+    "name": "Forgotten Threshold",
+    "year": 2025,
+    "category": "Franchise",
+    "genre": "Family",
+    "box_office_millions": 283.0,
+    "rating": 8.6
+  },
+  {
+    "name": "Golden Journey",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 93.0,
+    "rating": 7.1
+  },
+  {
+    "name": "Silent Island",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Thriller",
+    "box_office_millions": 24.4,
+    "rating": 6.2
+  },
+  {
+    "name": "First Labyrinth",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Documentary",
+    "box_office_millions": 793.3,
+    "rating": 6.9
+  },
+  {
+    "name": "Distant Reckoning",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Sci-Fi",
+    "box_office_millions": 371.7,
+    "rating": 6.9
+  },
+  {
+    "name": "Last Edge",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Biography",
+    "box_office_millions": 446.8,
+    "rating": 7.8
+  },
+  {
+    "name": "Golden Legacy",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Romance",
+    "box_office_millions": 226.5,
+    "rating": 7.3
+  },
+  {
+    "name": "Electric Island",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Fantasy",
+    "box_office_millions": 85.2,
+    "rating": 7.6
+  },
+  {
+    "name": "Lonely River",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Animation",
+    "box_office_millions": 61.4,
+    "rating": 5.8
+  },
+  {
+    "name": "Frozen Reckoning",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Comedy",
+    "box_office_millions": 486.9,
+    "rating": 7.7
+  },
+  {
+    "name": "Broken Reckoning",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Family",
+    "box_office_millions": 55.4,
+    "rating": 8.5
+  },
+  {
+    "name": "Burning Valley",
+    "year": 2023,
+    "category": "Blockbuster",
+    "genre": "Horror",
+    "box_office_millions": 1673.6,
+    "rating": 6.9
+  },
+  {
+    "name": "Electric Memory",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Action",
+    "box_office_millions": 485.4,
+    "rating": 6.0
+  },
+  {
+    "name": "Crimson Storm",
+    "year": 2021,
+    "category": "Streaming",
+    "genre": "Family",
+    "box_office_millions": 31.9,
+    "rating": 7.6
+  },
+  {
+    "name": "Hidden Dawn",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Horror",
+    "box_office_millions": 95.8,
+    "rating": 7.9
+  },
+  {
+    "name": "Crimson Journey",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 1653.1,
+    "rating": 7.2
+  },
+  {
+    "name": "Golden Run",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Biography",
+    "box_office_millions": 345.9,
+    "rating": 8.4
+  },
+  {
+    "name": "Iron Game",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Documentary",
+    "box_office_millions": 38.8,
+    "rating": 6.3
+  },
+  {
+    "name": "Blue Threshold",
+    "year": 2021,
+    "category": "Franchise",
+    "genre": "Documentary",
+    "box_office_millions": 79.0,
+    "rating": 8.9
+  },
+  {
+    "name": "Hidden Reckoning",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Sci-Fi",
+    "box_office_millions": 132.1,
+    "rating": 5.5
+  },
+  {
+    "name": "Broken Storm",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Drama",
+    "box_office_millions": 846.6,
+    "rating": 8.1
+  },
+  {
+    "name": "Midnight Legacy",
+    "year": 2019,
+    "category": "Indie",
+    "genre": "Sci-Fi",
+    "box_office_millions": 141.4,
+    "rating": 7.5
+  },
+  {
+    "name": "Urban Code",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Adventure",
+    "box_office_millions": 125.0,
+    "rating": 7.3
+  },
+  {
+    "name": "Hidden Storm",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Biography",
+    "box_office_millions": 45.4,
+    "rating": 7.9
+  },
+  {
+    "name": "Golden Echo",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Adventure",
+    "box_office_millions": 119.0,
+    "rating": 7.9
+  },
+  {
+    "name": "Endless City",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Animation",
+    "box_office_millions": 280.6,
+    "rating": 6.4
+  },
+  {
+    "name": "Red Island",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Comedy",
+    "box_office_millions": 59.1,
+    "rating": 7.3
+  },
+  {
+    "name": "Lonely Game",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Action",
+    "box_office_millions": 496.4,
+    "rating": 8.0
+  },
+  {
+    "name": "Silent Moment",
+    "year": 2025,
+    "category": "Franchise",
+    "genre": "Horror",
+    "box_office_millions": 59.4,
+    "rating": 8.3
+  },
+  {
+    "name": "Midnight Valley",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Animation",
+    "box_office_millions": 36.4,
+    "rating": 7.0
+  },
+  {
+    "name": "Silver Island",
+    "year": 2019,
+    "category": "Indie",
+    "genre": "Animation",
+    "box_office_millions": 81.7,
+    "rating": 6.1
+  },
+  {
+    "name": "Hidden Memory",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Romance",
+    "box_office_millions": 451.0,
+    "rating": 7.3
+  },
+  {
+    "name": "Shadow Storm",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 663.3,
+    "rating": 7.0
+  },
+  {
+    "name": "Burning Sky",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Fantasy",
+    "box_office_millions": 197.6,
+    "rating": 7.3
+  },
+  {
+    "name": "Red City",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Action",
+    "box_office_millions": 25.9,
+    "rating": 7.2
+  },
+  {
+    "name": "Midnight Hour",
+    "year": 2022,
+    "category": "Blockbuster",
+    "genre": "Adventure",
+    "box_office_millions": 446.9,
+    "rating": 7.6
+  },
+  {
+    "name": "Silver Game",
+    "year": 2025,
+    "category": "Animation",
+    "genre": "Sci-Fi",
+    "box_office_millions": 151.0,
+    "rating": 6.9
+  },
+  {
+    "name": "Golden Code",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Comedy",
+    "box_office_millions": 189.4,
+    "rating": 8.6
+  },
+  {
+    "name": "Final Island",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Horror",
+    "box_office_millions": 711.3,
+    "rating": 7.2
+  },
+  {
+    "name": "Midnight Island",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Animation",
+    "box_office_millions": 161.7,
+    "rating": 6.6
+  },
+  {
+    "name": "Iron Valley",
+    "year": 2024,
+    "category": "Other",
+    "genre": "Drama",
+    "box_office_millions": 14.1,
+    "rating": 7.7
+  },
+  {
+    "name": "Secret Labyrinth",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Fantasy",
+    "box_office_millions": 164.1,
+    "rating": 6.0
+  },
+  {
+    "name": "Endless Run",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 173.1,
+    "rating": 8.1
+  },
+  {
+    "name": "Midnight River",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Fantasy",
+    "box_office_millions": 108.7,
+    "rating": 6.6
+  },
+  {
+    "name": "Lonely Reckoning",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Sci-Fi",
+    "box_office_millions": 395.3,
+    "rating": 8.6
+  },
+  {
+    "name": "Secret Echo",
+    "year": 2021,
+    "category": "Prestige",
+    "genre": "Family",
+    "box_office_millions": 141.1,
+    "rating": 9.0
+  },
+  {
+    "name": "Silver Promise",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Action",
+    "box_office_millions": 25.1,
+    "rating": 7.1
+  },
+  {
+    "name": "Hidden City",
+    "year": 2019,
+    "category": "Prestige",
+    "genre": "Fantasy",
+    "box_office_millions": 3.2,
+    "rating": 7.4
+  },
+  {
+    "name": "Golden Island",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Horror",
+    "box_office_millions": 124.7,
+    "rating": 6.4
+  },
+  {
+    "name": "Golden Labyrinth",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Biography",
+    "box_office_millions": 106.8,
+    "rating": 8.3
+  },
+  {
+    "name": "Burning Island",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Fantasy",
+    "box_office_millions": 1254.0,
+    "rating": 6.7
+  },
+  {
+    "name": "Urban Legacy",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Family",
+    "box_office_millions": 896.2,
+    "rating": 6.3
+  },
+  {
+    "name": "Broken Edge",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Action",
+    "box_office_millions": 682.5,
+    "rating": 6.2
+  },
+  {
+    "name": "Electric River",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Drama",
+    "box_office_millions": 26.6,
+    "rating": 7.0
+  },
+  {
+    "name": "Broken Protocol",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Romance",
+    "box_office_millions": 689.5,
+    "rating": 7.5
+  },
+  {
+    "name": "Blue Promise",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Animation",
+    "box_office_millions": 236.0,
+    "rating": 5.9
+  },
+  {
+    "name": "Silent City",
+    "year": 2021,
+    "category": "Franchise",
+    "genre": "Biography",
+    "box_office_millions": 174.8,
+    "rating": 7.3
+  },
+  {
+    "name": "Endless Hour",
+    "year": 2022,
+    "category": "Indie",
+    "genre": "Family",
+    "box_office_millions": 91.4,
+    "rating": 6.1
+  },
+  {
+    "name": "Hidden Code",
+    "year": 2022,
+    "category": "Indie",
+    "genre": "Documentary",
+    "box_office_millions": 115.0,
+    "rating": 8.5
+  },
+  {
+    "name": "Endless Dawn",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 55.0,
+    "rating": 8.4
+  },
+  {
+    "name": "Urban Light",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Documentary",
+    "box_office_millions": 452.1,
+    "rating": 8.2
+  },
+  {
+    "name": "Endless Code",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Adventure",
+    "box_office_millions": 43.9,
+    "rating": 5.7
+  },
+  {
+    "name": "Burning Moment",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Drama",
+    "box_office_millions": 96.5,
+    "rating": 7.2
+  },
+  {
+    "name": "Crimson Legacy",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 1180.2,
+    "rating": 8.2
+  },
+  {
+    "name": "Lonely Light",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Drama",
+    "box_office_millions": 6.6,
+    "rating": 6.9
+  },
+  {
+    "name": "Electric Valley",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Horror",
+    "box_office_millions": 33.0,
+    "rating": 8.2
+  },
+  {
+    "name": "Frozen Labyrinth",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Comedy",
+    "box_office_millions": 192.6,
+    "rating": 7.4
+  },
+  {
+    "name": "Last Moment",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 193.5,
+    "rating": 9.0
+  },
+  {
+    "name": "Electric Protocol",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Romance",
+    "box_office_millions": 565.7,
+    "rating": 6.4
+  },
+  {
+    "name": "Electric Moment",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Biography",
+    "box_office_millions": 117.0,
+    "rating": 7.9
+  },
+  {
+    "name": "Electric Empire",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Sci-Fi",
+    "box_office_millions": 5.1,
+    "rating": 9.2
+  },
+  {
+    "name": "Red Labyrinth",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Sci-Fi",
+    "box_office_millions": 66.3,
+    "rating": 7.9
+  },
+  {
+    "name": "Desert Legacy",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Romance",
+    "box_office_millions": 322.6,
+    "rating": 8.8
+  },
+  {
+    "name": "Endless Island",
+    "year": 2019,
+    "category": "Streaming",
+    "genre": "Comedy",
+    "box_office_millions": 44.4,
+    "rating": 5.5
+  },
+  {
+    "name": "Desert Storm",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Documentary",
+    "box_office_millions": 656.7,
+    "rating": 8.1
+  },
+  {
+    "name": "Midnight Game",
+    "year": 2022,
+    "category": "Blockbuster",
+    "genre": "Horror",
+    "box_office_millions": 1396.0,
+    "rating": 6.7
+  },
+  {
+    "name": "Urban River",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Biography",
+    "box_office_millions": 12.2,
+    "rating": 6.0
+  },
+  {
+    "name": "Golden Moment",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Biography",
+    "box_office_millions": 541.5,
+    "rating": 5.1
+  },
+  {
+    "name": "Lonely Code",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Adventure",
+    "box_office_millions": 221.1,
+    "rating": 8.5
+  },
+  {
+    "name": "Red Reckoning",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 174.0,
+    "rating": 6.1
+  },
+  {
+    "name": "Silent Journey",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Drama",
+    "box_office_millions": 27.0,
+    "rating": 7.8
+  },
+  {
+    "name": "Silent Promise",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Thriller",
+    "box_office_millions": 157.7,
+    "rating": 7.1
+  },
+  {
+    "name": "Final Light",
+    "year": 2022,
+    "category": "Blockbuster",
+    "genre": "Fantasy",
+    "box_office_millions": 1504.0,
+    "rating": 7.4
+  },
+  {
+    "name": "Burning River",
+    "year": 2023,
+    "category": "Blockbuster",
+    "genre": "Documentary",
+    "box_office_millions": 931.4,
+    "rating": 6.7
+  },
+  {
+    "name": "Frozen Moment",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Horror",
+    "box_office_millions": 128.7,
+    "rating": 7.1
+  },
+  {
+    "name": "Midnight Sky",
+    "year": 2022,
+    "category": "Blockbuster",
+    "genre": "Biography",
+    "box_office_millions": 1006.0,
+    "rating": 8.7
+  },
+  {
+    "name": "Golden Protocol",
+    "year": 2021,
+    "category": "Streaming",
+    "genre": "Documentary",
+    "box_office_millions": 3.3,
+    "rating": 6.0
+  },
+  {
+    "name": "Silver Run",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Family",
+    "box_office_millions": 76.2,
+    "rating": 7.1
+  },
+  {
+    "name": "Distant Game",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Comedy",
+    "box_office_millions": 140.4,
+    "rating": 8.0
+  },
+  {
+    "name": "Silver Storm",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Sci-Fi",
+    "box_office_millions": 90.4,
+    "rating": 7.6
+  },
+  {
+    "name": "Lonely Threshold",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Biography",
+    "box_office_millions": 74.9,
+    "rating": 5.5
+  },
+  {
+    "name": "Midnight Protocol",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Comedy",
+    "box_office_millions": 892.2,
+    "rating": 8.2
+  },
+  {
+    "name": "Electric Promise",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Action",
+    "box_office_millions": 957.5,
+    "rating": 7.7
+  },
+  {
+    "name": "Secret River",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Biography",
+    "box_office_millions": 84.6,
+    "rating": 8.2
+  },
+  {
+    "name": "Iron Legacy",
+    "year": 2021,
+    "category": "Franchise",
+    "genre": "Comedy",
+    "box_office_millions": 517.3,
+    "rating": 6.5
+  },
+  {
+    "name": "Midnight Code",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Comedy",
+    "box_office_millions": 169.1,
+    "rating": 6.3
+  },
+  {
+    "name": "Burning Journey",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 85.9,
+    "rating": 7.0
+  },
+  {
+    "name": "Burning Game",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Biography",
+    "box_office_millions": 505.5,
+    "rating": 7.1
+  },
+  {
+    "name": "Urban Edge",
+    "year": 2021,
+    "category": "Streaming",
+    "genre": "Action",
+    "box_office_millions": 13.7,
+    "rating": 7.7
+  },
+  {
+    "name": "Final Run",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Romance",
+    "box_office_millions": 326.7,
+    "rating": 7.9
+  },
+  {
+    "name": "Silent Protocol",
+    "year": 2024,
+    "category": "Streaming",
+    "genre": "Fantasy",
+    "box_office_millions": 18.8,
+    "rating": 6.6
+  },
+  {
+    "name": "Broken River",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Family",
+    "box_office_millions": 155.4,
+    "rating": 7.0
+  },
+  {
+    "name": "Final Memory",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Documentary",
+    "box_office_millions": 1364.2,
+    "rating": 6.8
+  },
+  {
+    "name": "First Reckoning",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Fantasy",
+    "box_office_millions": 723.1,
+    "rating": 6.3
+  },
+  {
+    "name": "Blue Island",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Biography",
+    "box_office_millions": 9.2,
+    "rating": 6.4
+  },
+  {
+    "name": "Silent Reckoning",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 27.5,
+    "rating": 5.9
+  },
+  {
+    "name": "Frozen Threshold",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Drama",
+    "box_office_millions": 106.6,
+    "rating": 7.6
+  },
+  {
+    "name": "Red Moment",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Thriller",
+    "box_office_millions": 824.3,
+    "rating": 8.2
+  },
+  {
+    "name": "Secret Dawn",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Comedy",
+    "box_office_millions": 62.7,
+    "rating": 6.5
+  },
+  {
+    "name": "Shadow Edge",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Romance",
+    "box_office_millions": 23.1,
+    "rating": 5.1
+  },
+  {
+    "name": "Lonely Memory",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Documentary",
+    "box_office_millions": 166.4,
+    "rating": 9.3
+  },
+  {
+    "name": "Golden Threshold",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Comedy",
+    "box_office_millions": 21.8,
+    "rating": 6.4
+  },
+  {
+    "name": "Golden Sky",
+    "year": 2025,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 312.2,
+    "rating": 6.2
+  },
+  {
+    "name": "Hidden Valley",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 69.9,
+    "rating": 7.5
+  },
+  {
+    "name": "Final Journey",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Drama",
+    "box_office_millions": 169.8,
+    "rating": 8.3
+  },
+  {
+    "name": "Golden Memory",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 92.8,
+    "rating": 8.4
+  },
+  {
+    "name": "Blue City",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Documentary",
+    "box_office_millions": 575.4,
+    "rating": 7.2
+  },
+  {
+    "name": "Silver Labyrinth",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 964.4,
+    "rating": 7.9
+  },
+  {
+    "name": "First Run",
+    "year": 2019,
+    "category": "Franchise",
+    "genre": "Thriller",
+    "box_office_millions": 92.7,
+    "rating": 7.4
+  },
+  {
+    "name": "Crimson Echo",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Horror",
+    "box_office_millions": 1307.1,
+    "rating": 8.9
+  },
+  {
+    "name": "Golden Game",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Fantasy",
+    "box_office_millions": 92.6,
+    "rating": 8.4
+  },
+  {
+    "name": "Forgotten Run",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Sci-Fi",
+    "box_office_millions": 121.0,
+    "rating": 6.8
+  },
+  {
+    "name": "Crimson City",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Adventure",
+    "box_office_millions": 68.8,
+    "rating": 7.5
+  },
+  {
+    "name": "Broken Echo",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Family",
+    "box_office_millions": 198.2,
+    "rating": 8.3
+  },
+  {
+    "name": "Iron Memory",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Thriller",
+    "box_office_millions": 77.5,
+    "rating": 7.7
+  },
+  {
+    "name": "Urban Game",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Adventure",
+    "box_office_millions": 586.1,
+    "rating": 5.2
+  },
+  {
+    "name": "Urban Sky",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 767.9,
+    "rating": 8.4
+  },
+  {
+    "name": "Iron Promise",
+    "year": 2021,
+    "category": "Franchise",
+    "genre": "Comedy",
+    "box_office_millions": 670.3,
+    "rating": 8.8
+  },
+  {
+    "name": "Desert Moment",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Drama",
+    "box_office_millions": 714.7,
+    "rating": 6.3
+  },
+  {
+    "name": "Red Sky",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Adventure",
+    "box_office_millions": 162.7,
+    "rating": 7.3
+  },
+  {
+    "name": "Distant Protocol",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 101.7,
+    "rating": 7.0
+  },
+  {
+    "name": "Endless Memory",
+    "year": 2020,
+    "category": "Other",
+    "genre": "Thriller",
+    "box_office_millions": 97.3,
+    "rating": 5.8
+  },
+  {
+    "name": "Final Promise",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Horror",
+    "box_office_millions": 157.6,
+    "rating": 6.8
+  },
+  {
+    "name": "Red Light",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Action",
+    "box_office_millions": 309.7,
+    "rating": 7.7
+  },
+  {
+    "name": "Shadow Promise",
+    "year": 2020,
+    "category": "Other",
+    "genre": "Drama",
+    "box_office_millions": 138.6,
+    "rating": 7.2
+  },
+  {
+    "name": "Forgotten Echo",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Thriller",
+    "box_office_millions": 650.4,
+    "rating": 8.4
+  },
+  {
+    "name": "Red Code",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Adventure",
+    "box_office_millions": 93.9,
+    "rating": 7.9
+  },
+  {
+    "name": "Secret Memory",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 121.0,
+    "rating": 8.1
+  },
+  {
+    "name": "Crimson Hour",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Thriller",
+    "box_office_millions": 935.6,
+    "rating": 8.1
+  },
+  {
+    "name": "First City",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Drama",
+    "box_office_millions": 87.6,
+    "rating": 8.3
+  },
+  {
+    "name": "Last City",
+    "year": 2021,
+    "category": "Prestige",
+    "genre": "Action",
+    "box_office_millions": 10.7,
+    "rating": 8.3
+  },
+  {
+    "name": "Last Sky",
+    "year": 2019,
+    "category": "Streaming",
+    "genre": "Thriller",
+    "box_office_millions": 1.4,
+    "rating": 8.3
+  },
+  {
+    "name": "Desert Hour",
+    "year": 2021,
+    "category": "Streaming",
+    "genre": "Adventure",
+    "box_office_millions": 6.9,
+    "rating": 6.0
+  },
+  {
+    "name": "Midnight Edge",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Drama",
+    "box_office_millions": 141.1,
+    "rating": 6.6
+  },
+  {
+    "name": "Secret Empire",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Horror",
+    "box_office_millions": 15.1,
+    "rating": 5.2
+  },
+  {
+    "name": "Secret Hour",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Documentary",
+    "box_office_millions": 12.7,
+    "rating": 9.1
+  },
+  {
+    "name": "Red Dawn",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Fantasy",
+    "box_office_millions": 257.1,
+    "rating": 6.4
+  },
+  {
+    "name": "Iron River",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Documentary",
+    "box_office_millions": 37.5,
+    "rating": 8.7
+  },
+  {
+    "name": "Distant River",
+    "year": 2019,
+    "category": "Franchise",
+    "genre": "Fantasy",
+    "box_office_millions": 517.2,
+    "rating": 9.0
+  },
+  {
+    "name": "Shadow River",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Family",
+    "box_office_millions": 746.3,
+    "rating": 6.2
+  },
+  {
+    "name": "Last Light",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Biography",
+    "box_office_millions": 1554.4,
+    "rating": 8.2
+  },
+  {
+    "name": "Lonely Promise",
+    "year": 2019,
+    "category": "Franchise",
+    "genre": "Thriller",
+    "box_office_millions": 351.8,
+    "rating": 7.9
+  },
+  {
+    "name": "Forgotten Edge",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Biography",
+    "box_office_millions": 40.6,
+    "rating": 5.2
+  },
+  {
+    "name": "Burning City",
+    "year": 2019,
+    "category": "Streaming",
+    "genre": "Horror",
+    "box_office_millions": 2.2,
+    "rating": 5.7
+  },
+  {
+    "name": "Crimson Labyrinth",
+    "year": 2021,
+    "category": "Prestige",
+    "genre": "Fantasy",
+    "box_office_millions": 197.8,
+    "rating": 8.4
+  },
+  {
+    "name": "Burning Hour",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Horror",
+    "box_office_millions": 172.4,
+    "rating": 5.2
+  },
+  {
+    "name": "First Empire",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Thriller",
+    "box_office_millions": 177.9,
+    "rating": 8.9
+  },
+  {
+    "name": "Broken Island",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Animation",
+    "box_office_millions": 184.9,
+    "rating": 6.8
+  },
+  {
+    "name": "Golden Light",
+    "year": 2022,
+    "category": "Prestige",
+    "genre": "Comedy",
+    "box_office_millions": 120.5,
+    "rating": 9.1
+  },
+  {
+    "name": "Red Legacy",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Comedy",
+    "box_office_millions": 689.4,
+    "rating": 6.9
+  },
+  {
+    "name": "Desert Threshold",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Family",
+    "box_office_millions": 70.4,
+    "rating": 7.1
+  },
+  {
+    "name": "Electric Game",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 882.2,
+    "rating": 8.3
+  },
+  {
+    "name": "Silver Sky",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Fantasy",
+    "box_office_millions": 150.0,
+    "rating": 5.6
+  },
+  {
+    "name": "Iron Moment",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 296.1,
+    "rating": 6.7
+  },
+  {
+    "name": "Electric Sky",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Action",
+    "box_office_millions": 170.4,
+    "rating": 7.3
+  },
+  {
+    "name": "Silent Light",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Animation",
+    "box_office_millions": 399.2,
+    "rating": 7.7
+  },
+  {
+    "name": "First Journey",
+    "year": 2024,
+    "category": "Streaming",
+    "genre": "Animation",
+    "box_office_millions": 49.8,
+    "rating": 6.0
+  },
+  {
+    "name": "Midnight Reckoning",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Drama",
+    "box_office_millions": 14.9,
+    "rating": 5.6
+  },
+  {
+    "name": "Desert City",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Adventure",
+    "box_office_millions": 871.1,
+    "rating": 8.5
+  },
+  {
+    "name": "Desert Protocol",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Fantasy",
+    "box_office_millions": 178.3,
+    "rating": 8.0
+  },
+  {
+    "name": "Desert Edge",
+    "year": 2024,
+    "category": "Streaming",
+    "genre": "Biography",
+    "box_office_millions": 39.7,
+    "rating": 6.8
+  },
+  {
+    "name": "Final Code",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 753.7,
+    "rating": 7.7
+  },
+  {
+    "name": "Forgotten Storm",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Documentary",
+    "box_office_millions": 178.2,
+    "rating": 7.2
+  },
+  {
+    "name": "Desert Light",
+    "year": 2022,
+    "category": "Prestige",
+    "genre": "Fantasy",
+    "box_office_millions": 153.9,
+    "rating": 9.1
+  },
+  {
+    "name": "Golden Promise",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Biography",
+    "box_office_millions": 927.5,
+    "rating": 8.0
+  },
+  {
+    "name": "Broken Promise",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Fantasy",
+    "box_office_millions": 11.2,
+    "rating": 5.4
+  },
+  {
+    "name": "Final Legacy",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Drama",
+    "box_office_millions": 187.0,
+    "rating": 5.8
+  },
+  {
+    "name": "Distant Legacy",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Comedy",
+    "box_office_millions": 39.3,
+    "rating": 8.3
+  },
+  {
+    "name": "First Promise",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Horror",
+    "box_office_millions": 542.8,
+    "rating": 7.5
+  },
+  {
+    "name": "Broken Run",
+    "year": 2023,
+    "category": "Streaming",
+    "genre": "Drama",
+    "box_office_millions": 32.9,
+    "rating": 7.5
+  },
+  {
+    "name": "Blue Echo",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Action",
+    "box_office_millions": 138.7,
+    "rating": 7.9
+  },
+  {
+    "name": "Blue Journey",
+    "year": 2024,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 114.5,
+    "rating": 7.2
+  },
+  {
+    "name": "Shadow Legacy",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Comedy",
+    "box_office_millions": 63.3,
+    "rating": 6.5
+  },
+  {
+    "name": "Midnight City",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Thriller",
+    "box_office_millions": 160.8,
+    "rating": 8.6
+  },
+  {
+    "name": "Final River",
+    "year": 2023,
+    "category": "Blockbuster",
+    "genre": "Fantasy",
+    "box_office_millions": 672.3,
+    "rating": 7.4
+  },
+  {
+    "name": "Last Promise",
+    "year": 2019,
+    "category": "Indie",
+    "genre": "Action",
+    "box_office_millions": 189.1,
+    "rating": 8.0
+  },
+  {
+    "name": "Secret Code",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Drama",
+    "box_office_millions": 65.6,
+    "rating": 7.0
+  },
+  {
+    "name": "Forgotten Island",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 225.6,
+    "rating": 7.2
+  },
+  {
+    "name": "Electric Echo",
+    "year": 2019,
+    "category": "Prestige",
+    "genre": "Horror",
+    "box_office_millions": 119.5,
+    "rating": 9.1
+  },
+  {
+    "name": "Urban Island",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Fantasy",
+    "box_office_millions": 1702.0,
+    "rating": 7.3
+  },
+  {
+    "name": "Shadow Echo",
+    "year": 2023,
+    "category": "Streaming",
+    "genre": "Fantasy",
+    "box_office_millions": 18.1,
+    "rating": 6.0
+  },
+  {
+    "name": "Shadow Valley",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Adventure",
+    "box_office_millions": 294.1,
+    "rating": 9.0
+  },
+  {
+    "name": "Hidden Sky",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Adventure",
+    "box_office_millions": 111.6,
+    "rating": 6.3
+  },
+  {
+    "name": "Final Reckoning",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Fantasy",
+    "box_office_millions": 100.1,
+    "rating": 7.1
+  },
+  {
+    "name": "Final Edge",
+    "year": 2021,
+    "category": "Prestige",
+    "genre": "Adventure",
+    "box_office_millions": 103.9,
+    "rating": 7.4
+  },
+  {
+    "name": "Distant Promise",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Documentary",
+    "box_office_millions": 32.6,
+    "rating": 8.5
+  },
+  {
+    "name": "Frozen Legacy",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Thriller",
+    "box_office_millions": 831.7,
+    "rating": 7.6
+  },
+  {
+    "name": "Desert Run",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Animation",
+    "box_office_millions": 3.4,
+    "rating": 6.2
+  },
+  {
+    "name": "Blue Legacy",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Family",
+    "box_office_millions": 137.6,
+    "rating": 5.1
+  },
+  {
+    "name": "Midnight Journey",
+    "year": 2024,
+    "category": "Other",
+    "genre": "Adventure",
+    "box_office_millions": 115.7,
+    "rating": 5.8
+  },
+  {
+    "name": "Crimson Run",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Drama",
+    "box_office_millions": 636.4,
+    "rating": 7.9
+  },
+  {
+    "name": "New Dawn",
+    "year": 2022,
+    "category": "Prestige",
+    "genre": "Thriller",
+    "box_office_millions": 30.4,
+    "rating": 8.7
+  },
+  {
+    "name": "Secret Valley",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Documentary",
+    "box_office_millions": 174.6,
+    "rating": 8.8
+  },
+  {
+    "name": "Crimson Edge",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Fantasy",
+    "box_office_millions": 28.0,
+    "rating": 8.5
+  },
+  {
+    "name": "Red River",
+    "year": 2024,
+    "category": "Other",
+    "genre": "Adventure",
+    "box_office_millions": 144.2,
+    "rating": 7.3
+  },
+  {
+    "name": "Desert Journey",
+    "year": 2023,
+    "category": "Streaming",
+    "genre": "Animation",
+    "box_office_millions": 47.9,
+    "rating": 6.0
+  },
+  {
+    "name": "Endless Legacy",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Sci-Fi",
+    "box_office_millions": 637.4,
+    "rating": 6.1
+  },
+  {
+    "name": "Electric Storm",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Family",
+    "box_office_millions": 57.6,
+    "rating": 7.0
+  },
+  {
+    "name": "Burning Promise",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Action",
+    "box_office_millions": 191.1,
+    "rating": 5.3
+  },
+  {
+    "name": "Forgotten Hour",
+    "year": 2021,
+    "category": "Prestige",
+    "genre": "Family",
+    "box_office_millions": 42.9,
+    "rating": 9.1
+  },
+  {
+    "name": "First Storm",
+    "year": 2024,
+    "category": "Streaming",
+    "genre": "Horror",
+    "box_office_millions": 5.5,
+    "rating": 7.6
+  },
+  {
+    "name": "Last Code",
+    "year": 2019,
+    "category": "Franchise",
+    "genre": "Biography",
+    "box_office_millions": 241.2,
+    "rating": 6.7
+  },
+  {
+    "name": "Lonely Edge",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Comedy",
+    "box_office_millions": 696.0,
+    "rating": 5.0
+  },
+  {
+    "name": "Red Memory",
+    "year": 2022,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 95.5,
+    "rating": 7.5
+  },
+  {
+    "name": "Endless Labyrinth",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Biography",
+    "box_office_millions": 1820.5,
+    "rating": 6.3
+  },
+  {
+    "name": "Blue Code",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Family",
+    "box_office_millions": 766.8,
+    "rating": 5.1
+  },
+  {
+    "name": "Broken Threshold",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Drama",
+    "box_office_millions": 1994.5,
+    "rating": 7.2
+  },
+  {
+    "name": "Midnight Memory",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Horror",
+    "box_office_millions": 68.1,
+    "rating": 7.7
+  },
+  {
+    "name": "Hidden Labyrinth",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Animation",
+    "box_office_millions": 493.5,
+    "rating": 6.7
+  },
+  {
+    "name": "Forgotten Journey",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Adventure",
+    "box_office_millions": 694.8,
+    "rating": 8.2
+  },
+  {
+    "name": "Desert Memory",
+    "year": 2019,
+    "category": "Indie",
+    "genre": "Family",
+    "box_office_millions": 158.2,
+    "rating": 7.0
+  },
+  {
+    "name": "Burning Reckoning",
+    "year": 2020,
+    "category": "Other",
+    "genre": "Documentary",
+    "box_office_millions": 127.8,
+    "rating": 6.4
+  },
+  {
+    "name": "Shadow Code",
+    "year": 2022,
+    "category": "Indie",
+    "genre": "Adventure",
+    "box_office_millions": 190.8,
+    "rating": 6.1
+  },
+  {
+    "name": "Frozen Run",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 330.0,
+    "rating": 5.8
+  },
+  {
+    "name": "Broken Sky",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Fantasy",
+    "box_office_millions": 695.2,
+    "rating": 7.4
+  },
+  {
+    "name": "Frozen Game",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Romance",
+    "box_office_millions": 498.8,
+    "rating": 6.6
+  },
+  {
+    "name": "New Code",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Adventure",
+    "box_office_millions": 875.7,
+    "rating": 6.2
+  },
+  {
+    "name": "Desert River",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Documentary",
+    "box_office_millions": 170.4,
+    "rating": 7.6
+  },
+  {
+    "name": "Lonely Valley",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Comedy",
+    "box_office_millions": 192.8,
+    "rating": 7.0
+  },
+  {
+    "name": "Forgotten Promise",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Romance",
+    "box_office_millions": 112.8,
+    "rating": 8.4
+  },
+  {
+    "name": "Frozen Dawn",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Horror",
+    "box_office_millions": 0.7,
+    "rating": 5.8
+  },
+  {
+    "name": "Red Echo",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 609.8,
+    "rating": 6.5
+  },
+  {
+    "name": "Final Hour",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 75.0,
+    "rating": 9.2
+  },
+  {
+    "name": "Forgotten Sky",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Comedy",
+    "box_office_millions": 868.1,
+    "rating": 8.1
+  },
+  {
+    "name": "Last Dawn",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Action",
+    "box_office_millions": 92.7,
+    "rating": 7.5
+  },
+  {
+    "name": "Secret Storm",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Sci-Fi",
+    "box_office_millions": 23.0,
+    "rating": 5.5
+  },
+  {
+    "name": "New Light",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Comedy",
+    "box_office_millions": 1628.5,
+    "rating": 7.3
+  },
+  {
+    "name": "Burning Dawn",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Sci-Fi",
+    "box_office_millions": 246.7,
+    "rating": 6.1
+  },
+  {
+    "name": "Desert Echo",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Family",
+    "box_office_millions": 834.4,
+    "rating": 6.7
+  },
+  {
+    "name": "New Echo",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Fantasy",
+    "box_office_millions": 46.9,
+    "rating": 8.2
+  },
+  {
+    "name": "Blue Labyrinth",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Documentary",
+    "box_office_millions": 134.5,
+    "rating": 6.1
+  },
+  {
+    "name": "Endless Promise",
+    "year": 2024,
+    "category": "Streaming",
+    "genre": "Fantasy",
+    "box_office_millions": 20.7,
+    "rating": 6.0
+  },
+  {
+    "name": "Red Run",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Drama",
+    "box_office_millions": 614.1,
+    "rating": 6.9
+  },
+  {
+    "name": "Silver Moment",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Adventure",
+    "box_office_millions": 332.4,
+    "rating": 7.2
+  },
+  {
+    "name": "Shadow Memory",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Fantasy",
+    "box_office_millions": 48.3,
+    "rating": 7.6
+  },
+  {
+    "name": "Desert Promise",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 1146.7,
+    "rating": 8.9
+  },
+  {
+    "name": "Red Valley",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Romance",
+    "box_office_millions": 12.7,
+    "rating": 6.2
+  },
+  {
+    "name": "Golden City",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Thriller",
+    "box_office_millions": 1094.5,
+    "rating": 8.5
+  },
+  {
+    "name": "Crimson Protocol",
+    "year": 2020,
+    "category": "Other",
+    "genre": "Adventure",
+    "box_office_millions": 117.6,
+    "rating": 7.4
+  },
+  {
+    "name": "New Island",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Thriller",
+    "box_office_millions": 191.4,
+    "rating": 5.1
+  },
+  {
+    "name": "Hidden Light",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Animation",
+    "box_office_millions": 34.8,
+    "rating": 7.5
+  },
+  {
+    "name": "Burning Legacy",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Animation",
+    "box_office_millions": 655.7,
+    "rating": 6.9
+  },
+  {
+    "name": "Midnight Labyrinth",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Thriller",
+    "box_office_millions": 82.8,
+    "rating": 7.0
+  },
+  {
+    "name": "Final Dawn",
+    "year": 2021,
+    "category": "Franchise",
+    "genre": "Fantasy",
+    "box_office_millions": 587.6,
+    "rating": 7.3
+  },
+  {
+    "name": "Shadow Run",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Sci-Fi",
+    "box_office_millions": 110.2,
+    "rating": 9.4
+  },
+  {
+    "name": "Frozen Hour",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Animation",
+    "box_office_millions": 33.7,
+    "rating": 9.0
+  },
+  {
+    "name": "Red Hour",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Fantasy",
+    "box_office_millions": 1686.2,
+    "rating": 6.2
+  },
+  {
+    "name": "Urban Echo",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Action",
+    "box_office_millions": 27.6,
+    "rating": 8.6
+  },
+  {
+    "name": "Crimson Game",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Biography",
+    "box_office_millions": 914.5,
+    "rating": 8.0
+  },
+  {
+    "name": "Silent Dawn",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Fantasy",
+    "box_office_millions": 2.5,
+    "rating": 8.3
+  },
+  {
+    "name": "Distant Edge",
+    "year": 2024,
+    "category": "Other",
+    "genre": "Romance",
+    "box_office_millions": 187.9,
+    "rating": 5.6
+  },
+  {
+    "name": "New Game",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Horror",
+    "box_office_millions": 71.0,
+    "rating": 7.8
+  },
+  {
+    "name": "Golden River",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Animation",
+    "box_office_millions": 258.3,
+    "rating": 8.1
+  },
+  {
+    "name": "Endless Moment",
+    "year": 2025,
+    "category": "Animation",
+    "genre": "Comedy",
+    "box_office_millions": 892.6,
+    "rating": 7.3
+  },
+  {
+    "name": "Midnight Echo",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Action",
+    "box_office_millions": 162.5,
+    "rating": 6.7
+  },
+  {
+    "name": "Lonely Run",
+    "year": 2025,
+    "category": "Franchise",
+    "genre": "Comedy",
+    "box_office_millions": 920.8,
+    "rating": 6.7
+  },
+  {
+    "name": "Urban Journey",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Documentary",
+    "box_office_millions": 39.3,
+    "rating": 8.3
+  },
+  {
+    "name": "Lonely Dawn",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Documentary",
+    "box_office_millions": 37.6,
+    "rating": 7.5
+  },
+  {
+    "name": "Blue Sky",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Fantasy",
+    "box_office_millions": 76.8,
+    "rating": 7.6
+  },
+  {
+    "name": "Frozen River",
+    "year": 2019,
+    "category": "Prestige",
+    "genre": "Comedy",
+    "box_office_millions": 46.5,
+    "rating": 7.2
+  },
+  {
+    "name": "Iron Sky",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Thriller",
+    "box_office_millions": 1286.5,
+    "rating": 8.4
+  },
+  {
+    "name": "Last River",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Romance",
+    "box_office_millions": 37.2,
+    "rating": 8.5
+  },
+  {
+    "name": "Final Sky",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Adventure",
+    "box_office_millions": 147.3,
+    "rating": 6.4
+  },
+  {
+    "name": "Electric Journey",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Drama",
+    "box_office_millions": 415.4,
+    "rating": 7.3
+  },
+  {
+    "name": "Shadow Dawn",
+    "year": 2021,
+    "category": "Prestige",
+    "genre": "Romance",
+    "box_office_millions": 155.9,
+    "rating": 8.8
+  },
+  {
+    "name": "Blue Valley",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 34.0,
+    "rating": 7.7
+  },
+  {
+    "name": "First Island",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Comedy",
+    "box_office_millions": 21.7,
+    "rating": 6.5
+  },
+  {
+    "name": "New City",
+    "year": 2019,
+    "category": "Indie",
+    "genre": "Drama",
+    "box_office_millions": 1.5,
+    "rating": 6.4
+  },
+  {
+    "name": "Desert Reckoning",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Thriller",
+    "box_office_millions": 48.2,
+    "rating": 8.4
+  },
+  {
+    "name": "Endless Light",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 193.6,
+    "rating": 9.0
+  },
+  {
+    "name": "Lonely Sky",
+    "year": 2021,
+    "category": "Prestige",
+    "genre": "Adventure",
+    "box_office_millions": 73.1,
+    "rating": 9.3
+  },
+  {
+    "name": "Urban Storm",
+    "year": 2019,
+    "category": "Prestige",
+    "genre": "Family",
+    "box_office_millions": 188.6,
+    "rating": 7.5
+  },
+  {
+    "name": "Endless Edge",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Adventure",
+    "box_office_millions": 81.9,
+    "rating": 6.7
+  },
+  {
+    "name": "Last Journey",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Drama",
+    "box_office_millions": 386.6,
+    "rating": 6.3
+  },
+  {
+    "name": "Midnight Run",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Fantasy",
+    "box_office_millions": 925.0,
+    "rating": 8.6
+  },
+  {
+    "name": "Iron Hour",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Comedy",
+    "box_office_millions": 49.7,
+    "rating": 7.3
+  },
+  {
+    "name": "Broken Hour",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Action",
+    "box_office_millions": 983.9,
+    "rating": 8.0
+  },
+  {
+    "name": "First Code",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Family",
+    "box_office_millions": 566.8,
+    "rating": 8.1
+  },
+  {
+    "name": "Forgotten Moment",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Family",
+    "box_office_millions": 167.7,
+    "rating": 9.0
+  },
+  {
+    "name": "Midnight Empire",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Romance",
+    "box_office_millions": 276.3,
+    "rating": 8.8
+  },
+  {
+    "name": "Forgotten Reckoning",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Animation",
+    "box_office_millions": 95.3,
+    "rating": 6.5
+  },
+  {
+    "name": "Endless Echo",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Family",
+    "box_office_millions": 94.0,
+    "rating": 7.0
+  },
+  {
+    "name": "Last Valley",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Fantasy",
+    "box_office_millions": 16.5,
+    "rating": 6.5
+  },
+  {
+    "name": "Shadow Hour",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Drama",
+    "box_office_millions": 595.0,
+    "rating": 6.4
+  },
+  {
+    "name": "New Journey",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Family",
+    "box_office_millions": 159.2,
+    "rating": 7.0
+  },
+  {
+    "name": "Electric Labyrinth",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 561.6,
+    "rating": 8.6
+  },
+  {
+    "name": "Shadow Game",
+    "year": 2022,
+    "category": "Blockbuster",
+    "genre": "Documentary",
+    "box_office_millions": 728.5,
+    "rating": 8.5
+  },
+  {
+    "name": "Blue Protocol",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Drama",
+    "box_office_millions": 23.7,
+    "rating": 6.1
+  },
+  {
+    "name": "Distant Sky",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Documentary",
+    "box_office_millions": 28.7,
+    "rating": 6.5
+  },
+  {
+    "name": "Red Edge",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Drama",
+    "box_office_millions": 183.5,
+    "rating": 6.9
+  },
+  {
+    "name": "Broken Labyrinth",
+    "year": 2025,
+    "category": "Franchise",
+    "genre": "Animation",
+    "box_office_millions": 72.5,
+    "rating": 7.1
+  },
+  {
+    "name": "Midnight Threshold",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Animation",
+    "box_office_millions": 142.1,
+    "rating": 8.1
+  },
+  {
+    "name": "Blue Dawn",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Adventure",
+    "box_office_millions": 14.6,
+    "rating": 6.0
+  },
+  {
+    "name": "Blue Light",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Adventure",
+    "box_office_millions": 110.0,
+    "rating": 7.3
+  },
+  {
+    "name": "Hidden Journey",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Fantasy",
+    "box_office_millions": 198.2,
+    "rating": 6.9
+  },
+  {
+    "name": "Burning Echo",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Family",
+    "box_office_millions": 109.3,
+    "rating": 9.5
+  },
+  {
+    "name": "Silver Code",
+    "year": 2021,
+    "category": "Prestige",
+    "genre": "Action",
+    "box_office_millions": 52.6,
+    "rating": 9.2
+  },
+  {
+    "name": "Blue Edge",
+    "year": 2021,
+    "category": "Franchise",
+    "genre": "Family",
+    "box_office_millions": 640.1,
+    "rating": 6.5
+  },
+  {
+    "name": "Blue River",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Horror",
+    "box_office_millions": 548.0,
+    "rating": 7.0
+  },
+  {
+    "name": "Desert Labyrinth",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 168.7,
+    "rating": 6.4
+  },
+  {
+    "name": "Silver Threshold",
+    "year": 2022,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 1285.6,
+    "rating": 8.6
+  },
+  {
+    "name": "Distant Light",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Family",
+    "box_office_millions": 91.0,
+    "rating": 6.7
+  },
+  {
+    "name": "Crimson Empire",
+    "year": 2024,
+    "category": "Other",
+    "genre": "Adventure",
+    "box_office_millions": 92.0,
+    "rating": 5.4
+  },
+  {
+    "name": "Forgotten Dawn",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Sci-Fi",
+    "box_office_millions": 819.4,
+    "rating": 8.1
+  },
+  {
+    "name": "First Protocol",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Thriller",
+    "box_office_millions": 16.6,
+    "rating": 7.3
+  },
+  {
+    "name": "Crimson Sky",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 632.5,
+    "rating": 5.8
+  },
+  {
+    "name": "Silver Protocol",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Comedy",
+    "box_office_millions": 466.2,
+    "rating": 6.2
+  },
+  {
+    "name": "Distant Moment",
+    "year": 2022,
+    "category": "Blockbuster",
+    "genre": "Action",
+    "box_office_millions": 1406.4,
+    "rating": 8.5
+  },
+  {
+    "name": "Secret Edge",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 496.4,
+    "rating": 6.3
+  },
+  {
+    "name": "Final Protocol",
+    "year": 2023,
+    "category": "Blockbuster",
+    "genre": "Documentary",
+    "box_office_millions": 1240.1,
+    "rating": 6.5
+  },
+  {
+    "name": "Electric Light",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Biography",
+    "box_office_millions": 144.7,
+    "rating": 6.4
+  },
+  {
+    "name": "Urban City",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Sci-Fi",
+    "box_office_millions": 1798.4,
+    "rating": 6.4
+  },
+  {
+    "name": "Frozen Sky",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Romance",
+    "box_office_millions": 158.2,
+    "rating": 5.9
+  },
+  {
+    "name": "Last Storm",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Documentary",
+    "box_office_millions": 550.8,
+    "rating": 7.7
+  },
+  {
+    "name": "Desert Dawn",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Biography",
+    "box_office_millions": 41.2,
+    "rating": 7.1
+  },
+  {
+    "name": "Silver Echo",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Adventure",
+    "box_office_millions": 24.7,
+    "rating": 5.4
+  },
+  {
+    "name": "Distant Dawn",
+    "year": 2021,
+    "category": "Streaming",
+    "genre": "Thriller",
+    "box_office_millions": 19.3,
+    "rating": 7.9
+  },
+  {
+    "name": "Silent Run",
+    "year": 2019,
+    "category": "Indie",
+    "genre": "Action",
+    "box_office_millions": 43.2,
+    "rating": 8.2
+  },
+  {
+    "name": "Desert Valley",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Romance",
+    "box_office_millions": 140.4,
+    "rating": 7.2
+  },
+  {
+    "name": "Red Storm",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Drama",
+    "box_office_millions": 16.8,
+    "rating": 5.3
+  },
+  {
+    "name": "Silver Hour",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Biography",
+    "box_office_millions": 654.8,
+    "rating": 7.3
+  },
+  {
+    "name": "Last Echo",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Comedy",
+    "box_office_millions": 23.3,
+    "rating": 8.5
+  },
+  {
+    "name": "Broken Empire",
+    "year": 2019,
+    "category": "Streaming",
+    "genre": "Family",
+    "box_office_millions": 35.1,
+    "rating": 5.6
+  },
+  {
+    "name": "First Memory",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Drama",
+    "box_office_millions": 705.2,
+    "rating": 5.9
+  },
+  {
+    "name": "Crimson Island",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Documentary",
+    "box_office_millions": 18.4,
+    "rating": 5.9
+  },
+  {
+    "name": "Frozen Valley",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Action",
+    "box_office_millions": 172.6,
+    "rating": 5.9
+  },
+  {
+    "name": "Secret Light",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Horror",
+    "box_office_millions": 15.7,
+    "rating": 6.3
+  },
+  {
+    "name": "Silent River",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Horror",
+    "box_office_millions": 788.8,
+    "rating": 8.2
+  },
+  {
+    "name": "Shadow Light",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Horror",
+    "box_office_millions": 450.1,
+    "rating": 8.9
+  },
+  {
+    "name": "Secret Island",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Drama",
+    "box_office_millions": 259.0,
+    "rating": 5.2
+  },
+  {
+    "name": "Electric City",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Comedy",
+    "box_office_millions": 113.7,
+    "rating": 6.4
+  },
+  {
+    "name": "Crimson Threshold",
+    "year": 2024,
+    "category": "Streaming",
+    "genre": "Drama",
+    "box_office_millions": 14.6,
+    "rating": 8.0
+  },
+  {
+    "name": "Forgotten City",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Romance",
+    "box_office_millions": 1095.1,
+    "rating": 8.9
+  },
+  {
+    "name": "New Labyrinth",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Comedy",
+    "box_office_millions": 230.9,
+    "rating": 6.2
+  },
+  {
+    "name": "Distant Echo",
+    "year": 2024,
+    "category": "Indie",
+    "genre": "Horror",
+    "box_office_millions": 164.0,
+    "rating": 5.6
+  },
+  {
+    "name": "Shadow City",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Family",
+    "box_office_millions": 264.9,
+    "rating": 7.4
+  },
+  {
+    "name": "Final Empire",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Action",
+    "box_office_millions": 156.2,
+    "rating": 5.8
+  },
+  {
+    "name": "Electric Reckoning",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Horror",
+    "box_office_millions": 89.3,
+    "rating": 5.5
+  },
+  {
+    "name": "Iron Code",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Horror",
+    "box_office_millions": 82.5,
+    "rating": 8.4
+  },
+  {
+    "name": "First Sky",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Romance",
+    "box_office_millions": 32.1,
+    "rating": 7.8
+  },
+  {
+    "name": "Last Hour",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Fantasy",
+    "box_office_millions": 4.0,
+    "rating": 6.3
+  },
+  {
+    "name": "Midnight Storm",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Animation",
+    "box_office_millions": 182.5,
+    "rating": 6.8
+  },
+  {
+    "name": "Shadow Journey",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Action",
+    "box_office_millions": 119.5,
+    "rating": 5.1
+  },
+  {
+    "name": "Last Memory",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Sci-Fi",
+    "box_office_millions": 224.6,
+    "rating": 6.9
+  },
+  {
+    "name": "Broken Code",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Thriller",
+    "box_office_millions": 147.6,
+    "rating": 6.3
+  },
+  {
+    "name": "Blue Reckoning",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Adventure",
+    "box_office_millions": 108.5,
+    "rating": 7.4
+  },
+  {
+    "name": "Crimson Dawn",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Documentary",
+    "box_office_millions": 826.3,
+    "rating": 7.7
+  },
+  {
+    "name": "Blue Memory",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 622.8,
+    "rating": 5.4
+  },
+  {
+    "name": "Hidden Island",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Thriller",
+    "box_office_millions": 79.2,
+    "rating": 6.2
+  },
+  {
+    "name": "Silver Light",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 567.2,
+    "rating": 6.7
+  },
+  {
+    "name": "Forgotten Light",
+    "year": 2022,
+    "category": "Prestige",
+    "genre": "Drama",
+    "box_office_millions": 98.7,
+    "rating": 7.9
+  },
+  {
+    "name": "Blue Hour",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Biography",
+    "box_office_millions": 8.1,
+    "rating": 5.3
+  },
+  {
+    "name": "Silent Labyrinth",
+    "year": 2021,
+    "category": "Blockbuster",
+    "genre": "Comedy",
+    "box_office_millions": 716.5,
+    "rating": 8.7
+  },
+  {
+    "name": "Golden Storm",
+    "year": 2019,
+    "category": "Franchise",
+    "genre": "Thriller",
+    "box_office_millions": 985.6,
+    "rating": 8.7
+  },
+  {
+    "name": "Frozen Light",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 260.6,
+    "rating": 5.8
+  },
+  {
+    "name": "Midnight Promise",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Thriller",
+    "box_office_millions": 883.8,
+    "rating": 6.9
+  },
+  {
+    "name": "Iron Island",
+    "year": 2020,
+    "category": "Blockbuster",
+    "genre": "Comedy",
+    "box_office_millions": 453.6,
+    "rating": 7.9
+  },
+  {
+    "name": "Midnight Moment",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Comedy",
+    "box_office_millions": 494.3,
+    "rating": 5.6
+  },
+  {
+    "name": "Crimson Promise",
+    "year": 2025,
+    "category": "Animation",
+    "genre": "Family",
+    "box_office_millions": 96.1,
+    "rating": 7.3
+  },
+  {
+    "name": "Distant Threshold",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Biography",
+    "box_office_millions": 187.3,
+    "rating": 7.0
+  },
+  {
+    "name": "Crimson Valley",
+    "year": 2023,
+    "category": "Other",
+    "genre": "Fantasy",
+    "box_office_millions": 114.3,
+    "rating": 8.4
+  },
+  {
+    "name": "New Reckoning",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Action",
+    "box_office_millions": 15.8,
+    "rating": 8.7
+  },
+  {
+    "name": "New Hour",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Documentary",
+    "box_office_millions": 64.0,
+    "rating": 7.5
+  },
+  {
+    "name": "Silent Edge",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Documentary",
+    "box_office_millions": 786.1,
+    "rating": 6.3
+  },
+  {
+    "name": "Blue Empire",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Documentary",
+    "box_office_millions": 20.3,
+    "rating": 6.0
+  },
+  {
+    "name": "Secret Journey",
+    "year": 2022,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 114.4,
+    "rating": 8.2
+  },
+  {
+    "name": "Desert Code",
+    "year": 2019,
+    "category": "Prestige",
+    "genre": "Family",
+    "box_office_millions": 184.2,
+    "rating": 9.2
+  },
+  {
+    "name": "Frozen City",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Thriller",
+    "box_office_millions": 145.8,
+    "rating": 7.1
+  },
+  {
+    "name": "Distant Memory",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 461.0,
+    "rating": 5.5
+  },
+  {
+    "name": "Distant Run",
+    "year": 2019,
+    "category": "Streaming",
+    "genre": "Drama",
+    "box_office_millions": 43.8,
+    "rating": 5.7
+  },
+  {
+    "name": "First River",
+    "year": 2025,
+    "category": "Franchise",
+    "genre": "Animation",
+    "box_office_millions": 409.0,
+    "rating": 8.8
+  },
+  {
+    "name": "Urban Dawn",
+    "year": 2020,
+    "category": "Prestige",
+    "genre": "Thriller",
+    "box_office_millions": 118.8,
+    "rating": 7.4
+  },
+  {
+    "name": "First Game",
+    "year": 2025,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 870.7,
+    "rating": 7.2
+  },
+  {
+    "name": "Secret Sky",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Thriller",
+    "box_office_millions": 50.5,
+    "rating": 8.2
+  },
+  {
+    "name": "Urban Valley",
+    "year": 2025,
+    "category": "Prestige",
+    "genre": "Documentary",
+    "box_office_millions": 116.9,
+    "rating": 7.0
+  },
+  {
+    "name": "Distant Code",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Adventure",
+    "box_office_millions": 160.5,
+    "rating": 7.1
+  },
+  {
+    "name": "Urban Labyrinth",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Drama",
+    "box_office_millions": 32.7,
+    "rating": 6.7
+  },
+  {
+    "name": "Endless Journey",
+    "year": 2022,
+    "category": "Prestige",
+    "genre": "Romance",
+    "box_office_millions": 147.4,
+    "rating": 8.5
+  },
+  {
+    "name": "Broken Moment",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Drama",
+    "box_office_millions": 19.6,
+    "rating": 5.4
+  },
+  {
+    "name": "Endless Threshold",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Thriller",
+    "box_office_millions": 52.2,
+    "rating": 6.0
+  },
+  {
+    "name": "Secret Run",
+    "year": 2022,
+    "category": "Indie",
+    "genre": "Drama",
+    "box_office_millions": 172.5,
+    "rating": 5.6
+  },
+  {
+    "name": "Lonely Hour",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Thriller",
+    "box_office_millions": 61.6,
+    "rating": 6.6
+  },
+  {
+    "name": "New Memory",
+    "year": 2023,
+    "category": "Streaming",
+    "genre": "Adventure",
+    "box_office_millions": 24.5,
+    "rating": 7.7
+  },
+  {
+    "name": "Iron Threshold",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Romance",
+    "box_office_millions": 85.9,
+    "rating": 8.2
+  },
+  {
+    "name": "Silent Echo",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Sci-Fi",
+    "box_office_millions": 342.1,
+    "rating": 5.0
+  },
+  {
+    "name": "Distant Labyrinth",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Biography",
+    "box_office_millions": 17.1,
+    "rating": 8.2
+  },
+  {
+    "name": "Electric Edge",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Adventure",
+    "box_office_millions": 781.6,
+    "rating": 7.9
+  },
+  {
+    "name": "Silver Dawn",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Family",
+    "box_office_millions": 862.7,
+    "rating": 7.1
+  },
+  {
+    "name": "Red Journey",
+    "year": 2022,
+    "category": "Streaming",
+    "genre": "Family",
+    "box_office_millions": 10.3,
+    "rating": 7.4
+  },
+  {
+    "name": "Distant Journey",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Documentary",
+    "box_office_millions": 132.1,
+    "rating": 7.9
+  },
+  {
+    "name": "Iron Reckoning",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Horror",
+    "box_office_millions": 104.7,
+    "rating": 5.7
+  },
+  {
+    "name": "Urban Protocol",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Documentary",
+    "box_office_millions": 449.8,
+    "rating": 8.3
+  },
+  {
+    "name": "First Hour",
+    "year": 2020,
+    "category": "Indie",
+    "genre": "Animation",
+    "box_office_millions": 52.9,
+    "rating": 5.2
+  },
+  {
+    "name": "Endless River",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Biography",
+    "box_office_millions": 85.3,
+    "rating": 5.4
+  },
+  {
+    "name": "Frozen Protocol",
+    "year": 2021,
+    "category": "Streaming",
+    "genre": "Thriller",
+    "box_office_millions": 5.7,
+    "rating": 6.4
+  },
+  {
+    "name": "Blue Moment",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Drama",
+    "box_office_millions": 392.2,
+    "rating": 7.1
+  },
+  {
+    "name": "Frozen Promise",
+    "year": 2022,
+    "category": "Blockbuster",
+    "genre": "Animation",
+    "box_office_millions": 1780.8,
+    "rating": 7.3
+  },
+  {
+    "name": "Iron Empire",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Biography",
+    "box_office_millions": 231.2,
+    "rating": 6.2
+  },
+  {
+    "name": "Red Game",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Action",
+    "box_office_millions": 841.6,
+    "rating": 6.8
+  },
+  {
+    "name": "Midnight Light",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Action",
+    "box_office_millions": 836.7,
+    "rating": 6.1
+  },
+  {
+    "name": "Endless Valley",
+    "year": 2023,
+    "category": "Animation",
+    "genre": "Sci-Fi",
+    "box_office_millions": 607.6,
+    "rating": 8.3
+  },
+  {
+    "name": "Lonely Storm",
+    "year": 2025,
+    "category": "Franchise",
+    "genre": "Documentary",
+    "box_office_millions": 483.7,
+    "rating": 8.0
+  },
+  {
+    "name": "New Edge",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Comedy",
+    "box_office_millions": 83.0,
+    "rating": 8.2
+  },
+  {
+    "name": "Urban Run",
+    "year": 2019,
+    "category": "Prestige",
+    "genre": "Adventure",
+    "box_office_millions": 91.5,
+    "rating": 8.5
+  },
+  {
+    "name": "Iron Edge",
+    "year": 2025,
+    "category": "Indie",
+    "genre": "Sci-Fi",
+    "box_office_millions": 79.6,
+    "rating": 6.2
+  },
+  {
+    "name": "Secret Game",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Family",
+    "box_office_millions": 312.9,
+    "rating": 8.1
+  },
+  {
+    "name": "Silver Reckoning",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Sci-Fi",
+    "box_office_millions": 720.1,
+    "rating": 8.1
+  },
+  {
+    "name": "Urban Promise",
+    "year": 2024,
+    "category": "Streaming",
+    "genre": "Biography",
+    "box_office_millions": 25.2,
+    "rating": 7.4
+  },
+  {
+    "name": "Hidden River",
+    "year": 2023,
+    "category": "Franchise",
+    "genre": "Animation",
+    "box_office_millions": 579.2,
+    "rating": 8.0
+  },
+  {
+    "name": "Crimson Moment",
+    "year": 2019,
+    "category": "Indie",
+    "genre": "Sci-Fi",
+    "box_office_millions": 150.1,
+    "rating": 5.6
+  },
+  {
+    "name": "Endless Reckoning",
+    "year": 2025,
+    "category": "Blockbuster",
+    "genre": "Fantasy",
+    "box_office_millions": 749.4,
+    "rating": 7.4
+  },
+  {
+    "name": "New Legacy",
+    "year": 2022,
+    "category": "Animation",
+    "genre": "Drama",
+    "box_office_millions": 76.3,
+    "rating": 8.4
+  },
+  {
+    "name": "First Dawn",
+    "year": 2021,
+    "category": "Animation",
+    "genre": "Animation",
+    "box_office_millions": 844.4,
+    "rating": 5.1
+  },
+  {
+    "name": "Broken Valley",
+    "year": 2019,
+    "category": "Franchise",
+    "genre": "Adventure",
+    "box_office_millions": 176.2,
+    "rating": 7.6
+  },
+  {
+    "name": "New Moment",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Thriller",
+    "box_office_millions": 58.8,
+    "rating": 8.3
+  },
+  {
+    "name": "Golden Empire",
+    "year": 2020,
+    "category": "Franchise",
+    "genre": "Adventure",
+    "box_office_millions": 542.5,
+    "rating": 7.9
+  },
+  {
+    "name": "Silent Hour",
+    "year": 2024,
+    "category": "Blockbuster",
+    "genre": "Documentary",
+    "box_office_millions": 1524.1,
+    "rating": 7.8
+  },
+  {
+    "name": "Silent Storm",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Fantasy",
+    "box_office_millions": 6.2,
+    "rating": 5.0
+  },
+  {
+    "name": "Last Game",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Horror",
+    "box_office_millions": 5.7,
+    "rating": 7.3
+  },
+  {
+    "name": "Lonely Island",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Thriller",
+    "box_office_millions": 666.2,
+    "rating": 8.1
+  },
+  {
+    "name": "Broken Dawn",
+    "year": 2021,
+    "category": "Other",
+    "genre": "Sci-Fi",
+    "box_office_millions": 44.4,
+    "rating": 7.6
+  },
+  {
+    "name": "Final Storm",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Horror",
+    "box_office_millions": 798.8,
+    "rating": 5.3
+  },
+  {
+    "name": "Urban Memory",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Fantasy",
+    "box_office_millions": 22.3,
+    "rating": 5.6
+  },
+  {
+    "name": "Frozen Island",
+    "year": 2021,
+    "category": "Streaming",
+    "genre": "Action",
+    "box_office_millions": 38.1,
+    "rating": 5.8
+  },
+  {
+    "name": "Iron Run",
+    "year": 2024,
+    "category": "Animation",
+    "genre": "Action",
+    "box_office_millions": 657.9,
+    "rating": 7.9
+  },
+  {
+    "name": "Secret Promise",
+    "year": 2023,
+    "category": "Streaming",
+    "genre": "Comedy",
+    "box_office_millions": 23.8,
+    "rating": 7.2
+  },
+  {
+    "name": "Iron Storm",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Action",
+    "box_office_millions": 135.7,
+    "rating": 6.5
+  },
+  {
+    "name": "Frozen Edge",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Comedy",
+    "box_office_millions": 26.9,
+    "rating": 8.2
+  },
+  {
+    "name": "Last Protocol",
+    "year": 2021,
+    "category": "Franchise",
+    "genre": "Documentary",
+    "box_office_millions": 420.5,
+    "rating": 6.6
+  },
+  {
+    "name": "First Edge",
+    "year": 2022,
+    "category": "Franchise",
+    "genre": "Romance",
+    "box_office_millions": 494.0,
+    "rating": 6.7
+  },
+  {
+    "name": "Last Legacy",
+    "year": 2019,
+    "category": "Animation",
+    "genre": "Romance",
+    "box_office_millions": 676.4,
+    "rating": 6.2
+  },
+  {
+    "name": "Frozen Code",
+    "year": 2025,
+    "category": "Streaming",
+    "genre": "Horror",
+    "box_office_millions": 11.5,
+    "rating": 7.9
+  },
+  {
+    "name": "Hidden Protocol",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Biography",
+    "box_office_millions": 122.8,
+    "rating": 8.9
+  },
+  {
+    "name": "Final Echo",
+    "year": 2023,
+    "category": "Prestige",
+    "genre": "Adventure",
+    "box_office_millions": 95.7,
+    "rating": 8.4
+  },
+  {
+    "name": "Forgotten Empire",
+    "year": 2024,
+    "category": "Prestige",
+    "genre": "Fantasy",
+    "box_office_millions": 63.2,
+    "rating": 7.0
+  },
+  {
+    "name": "Secret Reckoning",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Family",
+    "box_office_millions": 74.5,
+    "rating": 8.0
+  },
+  {
+    "name": "Shadow Reckoning",
+    "year": 2020,
+    "category": "Animation",
+    "genre": "Adventure",
+    "box_office_millions": 143.1,
+    "rating": 7.8
+  },
+  {
+    "name": "Hidden Edge",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Action",
+    "box_office_millions": 40.7,
+    "rating": 6.7
+  },
+  {
+    "name": "Silent Threshold",
+    "year": 2019,
+    "category": "Other",
+    "genre": "Thriller",
+    "box_office_millions": 135.9,
+    "rating": 7.1
+  },
+  {
+    "name": "Last Labyrinth",
+    "year": 2021,
+    "category": "Indie",
+    "genre": "Biography",
+    "box_office_millions": 142.1,
+    "rating": 7.1
+  },
+  {
+    "name": "Silent Sky",
+    "year": 2023,
+    "category": "Blockbuster",
+    "genre": "Adventure",
+    "box_office_millions": 252.7,
+    "rating": 7.9
+  },
+  {
+    "name": "Burning Threshold",
+    "year": 2025,
+    "category": "Franchise",
+    "genre": "Horror",
+    "box_office_millions": 246.6,
+    "rating": 6.0
+  },
+  {
+    "name": "First Legacy",
+    "year": 2024,
+    "category": "Franchise",
+    "genre": "Family",
+    "box_office_millions": 812.6,
+    "rating": 7.2
+  },
+  {
+    "name": "Hidden Hour",
+    "year": 2022,
+    "category": "Prestige",
+    "genre": "Documentary",
+    "box_office_millions": 54.5,
+    "rating": 8.6
+  },
+  {
+    "name": "Crimson Reckoning",
+    "year": 2022,
+    "category": "Other",
+    "genre": "Family",
+    "box_office_millions": 18.9,
+    "rating": 7.3
+  },
+  {
+    "name": "New River",
+    "year": 2019,
+    "category": "Streaming",
+    "genre": "Biography",
+    "box_office_millions": 48.7,
+    "rating": 5.8
+  },
+  {
+    "name": "Desert Game",
+    "year": 2020,
+    "category": "Other",
+    "genre": "Thriller",
+    "box_office_millions": 18.0,
+    "rating": 5.6
+  },
+  {
+    "name": "Red Empire",
+    "year": 2020,
+    "category": "Streaming",
+    "genre": "Animation",
+    "box_office_millions": 15.8,
+    "rating": 7.0
+  },
+  {
+    "name": "Desert Sky",
+    "year": 2021,
+    "category": "Streaming",
+    "genre": "Family",
+    "box_office_millions": 12.5,
+    "rating": 5.1
+  },
+  {
+    "name": "Silent Game",
+    "year": 2025,
+    "category": "Other",
+    "genre": "Thriller",
+    "box_office_millions": 124.1,
+    "rating": 6.1
+  },
+  {
+    "name": "New Empire",
+    "year": 2022,
+    "category": "Blockbuster",
+    "genre": "Sci-Fi",
+    "box_office_millions": 112.0,
+    "rating": 7.9
+  },
+  {
+    "name": "Crimson Light",
+    "year": 2019,
+    "category": "Blockbuster",
+    "genre": "Horror",
+    "box_office_millions": 1892.0,
+    "rating": 8.9
+  },
+  {
+    "name": "Iron Dawn",
+    "year": 2023,
+    "category": "Indie",
+    "genre": "Drama",
+    "box_office_millions": 1.4,
+    "rating": 8.4
+  }
+]
