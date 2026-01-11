@@ -40,6 +40,6 @@ This project provides a small, testable movie recommender engine (`movie_recomme
 - CI workflow is in `.github/workflows/ci.yml` and runs tests on pushes and pull requests.
 
 ## Large datasets
-- An expanded dataset was generated and saved as `movies_expanded_2019_2025_2000.json` (2000 movies across 2019–2025).
+- An expanded dataset was generated and saved as `movies_cleaned.csv` and `ratings_cleaned.csv` consisting of 9000+ movies across early 1900s to late 2020s.
 
 
