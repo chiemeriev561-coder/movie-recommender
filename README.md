@@ -1,45 +1,90 @@
-# movie-recommender
-A projects that suggest movies tailored to user tastes with a user friendly interface
-# Movie Recommender — Notes
+# Movie Recommender
 
-This project provides a small, testable movie recommender engine (`movie_recommender.py`) with optional fuzzy matching and data expansion helpers.
+A small, testable movie recommendation tool with a command-line interface and optional fuzzy search.
 
-## Optional dependency: RapidFuzz 🔎
-- RapidFuzz enables **fuzzy** matching (typo-tolerant search) and is optional.
-- Install it with:
+This repository contains:
 
-  pip install rapidfuzz
+- `movie_recommender.py` — core recommender and CLI entrypoint
+- `expand_dataset.py` — helper to expand or rebuild datasets
+- `movies_cleaned.csv`, `ratings_cleaned.csv` — example datasets used by the tests
 
-- The code detects RapidFuzz at runtime. If `--fuzzy` is passed but RapidFuzz is not installed, a runtime warning is printed and the search falls back to fast tokenized substring matching.
+## Installation
 
-## Performance & tuning ⚙️
-- Default fuzzy candidate cap: `FUZZY_MAX_CANDIDATES = 250`. This keeps fuzzy searches fast and predictable on large datasets.
-- Control fuzzy behavior via CLI flags:
-  - `--fuzzy` : enable fuzzy matching
-  - `--fuzzy-threshold <0-100>` : set match sensitivity (default 70)
-- For very large datasets you can increase `FUZZY_MAX_CANDIDATES` in `movie_recommender.py`, or add an indexed storage backend (SQLite) for faster searching.
+Recommended: create and activate a virtual environment, then install dependencies:
 
-## CLI examples 💻
-- Query and get JSON output:
+```bash
+python -m venv .venv
+.\.venv\Scripts\activate    # Windows
+pip install -r requirements.txt
+```
 
-  python -m movie_recommender --query "Inception" --format json
+RapidFuzz is optional but recommended for typo-tolerant searches:
 
-- Run fuzzy query (if RapidFuzz is installed):
+```bash
+pip install rapidfuzz
+```
 
-  python -m movie_recommender --query "Incption" --fuzzy --fuzzy-threshold 60 --format text
+## Quick start (CLI)
 
-- Load a custom dataset then query:
+Run the recommender using the script directly or as a module:
 
-  python -m movie_recommender --load my_movies.json --query "My Movie" --format json
+```bash
+# Run as module (preferred when package-installed)
+python -m movie_recommender --query "Inception"
 
-## Tests & CI ✅
-- Run unit tests locally:
+# Or run the script directly
+python movie_recommender.py --query "Inception"
+```
 
-  python -m pytest -q
+Examples with output format and fuzzy search:
 
-- CI workflow is in `.github/workflows/ci.yml` and runs tests on pushes and pull requests.
+```bash
+# JSON output
+python -m movie_recommender --query "Inception" --format json
 
-## Large datasets
-- An expanded dataset was generated and saved as `movies_cleaned.csv` and `ratings_cleaned.csv` consisting of 9000+ movies across early 1900s to late 2020s.
+# Fuzzy search (requires RapidFuzz)
+python -m movie_recommender --query "Incption" --fuzzy --fuzzy-threshold 60 --format text
+```
+
+If you have a custom dataset file (JSON or CSV supported by loader), pass it with `--load`:
+
+```bash
+python -m movie_recommender --load my_movies.json --query "My Movie" --format json
+```
+
+## Public API
+
+The tests call the loader function provided by the module. Use:
+
+```py
+from movie_recommender import load_movies
+movies = load_movies("movies_cleaned.csv", "ratings_cleaned.csv")
+```
+
+If tests fail with a signature mismatch, update `load_movies` to accept the dataset paths used above.
+
+## Tests & CI
+
+Run tests locally with:
+
+```bash
+pytest -q
+```
+
+CI configuration is in `.github/workflows/ci.yml` (tests run on push/PR).
+
+## Dataset notes
+
+The repository includes a cleaned dataset (`movies_cleaned.csv`, `ratings_cleaned.csv`). To regenerate or expand the dataset, use `expand_dataset.py` and follow its README/comments.
+
+## Contributing and License
+
+Contributions are welcome — open an issue or submit a pull request. Add a short `CONTRIBUTING.md` if you want contribution guidelines.
+
+This project does not include a license file; consider adding a `LICENSE` (for example, MIT) if you intend to make the project public.
+
+---
+
+For further edits, ensure examples match the actual CLI/loader signatures in `movie_recommender.py` and tests.
 
 
