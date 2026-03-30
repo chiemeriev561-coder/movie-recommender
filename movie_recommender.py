@@ -11,6 +11,15 @@ import argparse
 import sys
 from collections import defaultdict
 
+# Import CSV loader for integrating external data
+try:
+    from csv_loader import integrate_csv_data, get_csv_statistics
+    _HAS_CSV_LOADER = True
+except ImportError:
+    _HAS_CSV_LOADER = False
+    logger = logging.getLogger(__name__)
+    logger.warning("CSV loader not available. Only built-in movies will be used.")
+
 # Optional fuzzy search support using RapidFuzz (fast, permissive fuzzy matching)
 try:
     # import fuzz and try importing process (faster extraction); process may not exist in older installs
@@ -39,6 +48,66 @@ last_save_error: Optional[str] = None
 movies: List[Dict[str, Any]] = []  # Main movie dataset
 favorites: List[Dict[str, Any]] = []  # List of favorite movies
 _favorites_set: Set[Tuple[str, int]] = set()  # For O(1) lookups
+
+# Built-in movies (will be combined with CSV data)
+builtin_movies = [
+    {"name": "Superman", "year": 1978, "category": "Blockbuster", "genre": "Action", "box_office_millions": 134.2, "rating": 7.9},
+    {"name": "The Avengers", "year": 2012, "category": "Blockbuster", "genre": "Action", "box_office_millions": 1518.8, "rating": 8.4},
+    {"name": "Man From Toronto", "year": 2022, "category": "Streaming", "genre": "Action/Comedy", "box_office_millions": 12.3, "rating": 6.1},
+    {"name": "Black Widow", "year": 2021, "category": "Blockbuster", "genre": "Action", "box_office_millions": 379.8, "rating": 6.8},
+    {"name": "Shazam!", "year": 2019, "category": "Blockbuster", "genre": "Family/Fantasy", "box_office_millions": 364.6, "rating": 7.1},
+    {"name": "John Wick", "year": 2014, "category": "Action Franchise", "genre": "Action/Thriller", "box_office_millions": 86.0, "rating": 7.4},
+    {"name": "Spider-Man: No Way Home", "year": 2021, "category": "Blockbuster", "genre": "Action/Adventure", "box_office_millions": 1932.0, "rating": 8.1},
+    {"name": "Inception", "year": 2010, "category": "Prestige", "genre": "Sci-Fi", "box_office_millions": 829.9, "rating": 8.8},
+    {"name": "The Godfather", "year": 1972, "category": "Classic", "genre": "Crime/Drama", "box_office_millions": 246.1, "rating": 9.2},
+    {"name": "Parasite", "year": 2019, "category": "Indie", "genre": "Thriller/Drama", "box_office_millions": 258.8, "rating": 8.6},
+    {"name": "La La Land", "year": 2016, "category": "Musical", "genre": "Musical/Romance", "box_office_millions": 446.1, "rating": 8.0},
+    {"name": "Toy Story", "year": 1995, "category": "Animation", "genre": "Family/Animation", "box_office_millions": 373.6, "rating": 8.3},
+    {"name": "The Dark Knight", "year": 2008, "category": "Prestige", "genre": "Action/Crime", "box_office_millions": 1004.9, "rating": 9.0},
+    {"name": "Forrest Gump", "year": 1994, "category": "Classic", "genre": "Drama/Romance", "box_office_millions": 678.2, "rating": 8.8},
+    {"name": "The Shawshank Redemption", "year": 1994, "category": "Classic", "genre": "Drama", "box_office_millions": 58.3, "rating": 9.3},
+    {"name": "Interstellar", "year": 2014, "category": "Prestige", "genre": "Sci-Fi/Drama", "box_office_millions": 677.5, "rating": 8.6},
+    {"name": "Get Out", "year": 2017, "category": "Indie", "genre": "Horror/Thriller", "box_office_millions": 255.4, "rating": 7.7},
+    {"name": "The Matrix", "year": 1999, "category": "Sci-Fi", "genre": "Action/Sci-Fi", "box_office_millions": 463.5, "rating": 8.7},
+    {"name": "Titanic", "year": 1997, "category": "Romance/Blockbuster", "genre": "Romance/Drama", "box_office_millions": 2187.5, "rating": 7.8},
+    {"name": "Spirited Away", "year": 2001, "category": "Animation", "genre": "Fantasy/Animation", "box_office_millions": 355.5, "rating": 8.6},
+    {"name": "The Social Network", "year": 2010, "category": "Drama", "genre": "Drama/Biography", "box_office_millions": 224.9, "rating": 7.7},
+    {"name": "Mad Max: Fury Road", "year": 2015, "category": "Action", "genre": "Action/Adventure", "box_office_millions": 378.9, "rating": 8.1},
+    {"name": "City of God", "year": 2002, "category": "Indie", "genre": "Crime/Drama", "box_office_millions": 30.6, "rating": 8.6},
+    {"name": "Coco", "year": 2017, "category": "Animation", "genre": "Family/Animation", "box_office_millions": 807.1, "rating": 8.4}
+]
+
+def initialize_movie_dataset():
+    """Initialize the movie dataset by combining built-in movies with CSV data."""
+    global movies
+    
+    # Start with built-in movies
+    movies_list = builtin_movies.copy()
+    
+    # Add CSV data if available
+    if _HAS_CSV_LOADER:
+        try:
+            logger.info("Loading CSV data...")
+            movies_list = integrate_csv_data(
+                builtin_movies=builtin_movies,
+                movies_csv_path='movies_cleaned.csv',
+                ratings_csv_path='ratings_cleaned.csv'
+            )
+            logger.info(f"Dataset initialized with {len(movies_list)} total movies")
+        except Exception as e:
+            logger.exception(f"Failed to load CSV data, using built-in movies only: {e}")
+            movies_list = builtin_movies.copy()
+    else:
+        logger.info("Using built-in movies only (CSV loader not available)")
+        movies_list = builtin_movies.copy()
+    
+    # Update the global movies list
+    movies.clear()
+    movies.extend(movies_list)
+    
+    # Initialize search fields for all movies (deferred until after function definition)
+    # This will be called after ensure_search_fields is defined
+    return len(movies)
 
 # Simple favorites persistence (stores movie references by name+year)
 FAVORITES_FILE = 'favorites.json'
@@ -224,32 +293,6 @@ def get_favorite_movies() -> List[Dict[str, Any]]:
                 fav_movies.append(movie)
                 break
     return fav_movies
-movies = [
-    {"name": "Superman", "year": 1978, "category": "Blockbuster", "genre": "Action", "box_office_millions": 134.2, "rating": 7.9},
-    {"name": "The Avengers", "year": 2012, "category": "Blockbuster", "genre": "Action", "box_office_millions": 1518.8, "rating": 8.4},
-    {"name": "Man From Toronto", "year": 2022, "category": "Streaming", "genre": "Action/Comedy", "box_office_millions": 12.3, "rating": 6.1},
-    {"name": "Black Widow", "year": 2021, "category": "Blockbuster", "genre": "Action", "box_office_millions": 379.8, "rating": 6.8},
-    {"name": "Shazam!", "year": 2019, "category": "Blockbuster", "genre": "Family/Fantasy", "box_office_millions": 364.6, "rating": 7.1},
-    {"name": "John Wick", "year": 2014, "category": "Action Franchise", "genre": "Action/Thriller", "box_office_millions": 86.0, "rating": 7.4},
-    {"name": "Spider-Man: No Way Home", "year": 2021, "category": "Blockbuster", "genre": "Action/Adventure", "box_office_millions": 1932.0, "rating": 8.1},
-    {"name": "Inception", "year": 2010, "category": "Prestige", "genre": "Sci-Fi", "box_office_millions": 829.9, "rating": 8.8},
-    {"name": "The Godfather", "year": 1972, "category": "Classic", "genre": "Crime/Drama", "box_office_millions": 246.1, "rating": 9.2},
-    {"name": "Parasite", "year": 2019, "category": "Indie", "genre": "Thriller/Drama", "box_office_millions": 258.8, "rating": 8.6},
-    {"name": "La La Land", "year": 2016, "category": "Musical", "genre": "Musical/Romance", "box_office_millions": 446.1, "rating": 8.0},
-    {"name": "Toy Story", "year": 1995, "category": "Animation", "genre": "Family/Animation", "box_office_millions": 373.6, "rating": 8.3},
-    {"name": "The Dark Knight", "year": 2008, "category": "Prestige", "genre": "Action/Crime", "box_office_millions": 1004.9, "rating": 9.0},
-    {"name": "Forrest Gump", "year": 1994, "category": "Classic", "genre": "Drama/Romance", "box_office_millions": 678.2, "rating": 8.8},
-    {"name": "The Shawshank Redemption", "year": 1994, "category": "Classic", "genre": "Drama", "box_office_millions": 58.3, "rating": 9.3},
-    {"name": "Interstellar", "year": 2014, "category": "Prestige", "genre": "Sci-Fi/Drama", "box_office_millions": 677.5, "rating": 8.6},
-    {"name": "Get Out", "year": 2017, "category": "Indie", "genre": "Horror/Thriller", "box_office_millions": 255.4, "rating": 7.7},
-    {"name": "The Matrix", "year": 1999, "category": "Sci-Fi", "genre": "Action/Sci-Fi", "box_office_millions": 463.5, "rating": 8.7},
-    {"name": "Titanic", "year": 1997, "category": "Romance/Blockbuster", "genre": "Romance/Drama", "box_office_millions": 2187.5, "rating": 7.8},
-    {"name": "Spirited Away", "year": 2001, "category": "Animation", "genre": "Fantasy/Animation", "box_office_millions": 355.5, "rating": 8.6},
-    {"name": "The Social Network", "year": 2010, "category": "Drama", "genre": "Drama/Biography", "box_office_millions": 224.9, "rating": 7.7},
-    {"name": "Mad Max: Fury Road", "year": 2015, "category": "Action", "genre": "Action/Adventure", "box_office_millions": 378.9, "rating": 8.1},
-    {"name": "City of God", "year": 2002, "category": "Indie", "genre": "Crime/Drama", "box_office_millions": 30.6, "rating": 8.6},
-    {"name": "Coco", "year": 2017, "category": "Animation", "genre": "Family/Animation", "box_office_millions": 807.1, "rating": 8.4}
-]
 
 
 # Helper: format movie output including year
@@ -672,12 +715,22 @@ def ensure_search_fields(movie: dict) -> None:
     movie['_tokens'] = set(t for t in re.split(r'\s+|/|,', search_text) if t)
 
 
-# Initialize cached search fields for built-in dataset (helps fuzzy search and avoids repeated fallbacks)
-for m in movies:
-    try:
-        ensure_search_fields(m)
-    except Exception:
-        logger.exception("Failed to initialize search fields for movie: %s", m.get('name'))
+def complete_initialization():
+    """Complete the dataset initialization after all functions are defined."""
+    # Run the initialization
+    count = initialize_movie_dataset()
+    logger.info(f"Dataset initialization complete: {count} movies loaded")
+    
+    # Initialize search fields for all movies
+    for m in movies:
+        try:
+            ensure_search_fields(m)
+        except Exception:
+            logger.exception("Failed to initialize search fields for movie: %s", m.get('name'))
+
+
+# Complete initialization after all functions are defined
+complete_initialization()
 
 
 def _parse_args(argv=None):
