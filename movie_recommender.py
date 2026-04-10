@@ -256,18 +256,27 @@ def remove_favorite(name: str, year: int, path: str = FAVORITES_FILE) -> bool:
     global favorites, _favorites_set
     
     name_lower = name.lower()
-    entry = {'name': name, 'year': year}
     
     if (name_lower, year) not in _favorites_set:
         return False
-        
+    
+    previous_favorites = favorites.copy()
+    previous_set = _favorites_set.copy()
+    
     # Remove from both data structures
-    favorites = [f for f in favorites 
-                if not (f['name'].lower() == name_lower and f['year'] == year)]
+    favorites = [
+        f for f in favorites
+        if not (f['name'].lower() == name_lower and f['year'] == year)
+    ]
     _favorites_set.discard((name_lower, year))
     
     # Save changes
-    return save_favorites(path)
+    if save_favorites(path):
+        return True
+    
+    favorites = previous_favorites
+    _favorites_set = previous_set
+    return False
 
 def get_favorite_entries() -> List[Dict[str, Any]]:
     """
@@ -285,14 +294,15 @@ def get_favorite_movies() -> List[Dict[str, Any]]:
     Returns:
         List of full movie dictionaries for all favorites.
     """
-    fav_movies = []
-    for fav in favorites:
-        for movie in movies:
-            if (movie.get('name') == fav['name'] and 
-                movie.get('year') == fav['year']):
-                fav_movies.append(movie)
-                break
-    return fav_movies
+    movie_lookup = {
+        (movie.get('name'), movie.get('year')): movie
+        for movie in movies
+    }
+    return [
+        movie_lookup[key]
+        for key in ((fav['name'], fav['year']) for fav in favorites)
+        if key in movie_lookup
+    ]
 
 
 # Helper: format movie output including year
@@ -543,6 +553,15 @@ def parse_filters(filter_text: str) -> dict:
     return out
 
 
+def _movie_text_parts(movie: Dict[str, Any]) -> Tuple[str, str]:
+    """Return normalized search text for genre and category filters."""
+    genre_parts = [str(movie.get('genre', ''))]
+    genre_parts.extend(movie.get('all_genres', []))
+    genre_text = " ".join(part.lower() for part in genre_parts if part).strip()
+    category_text = str(movie.get('category', '')).lower()
+    return genre_text, category_text
+
+
 def find_matches(query_text: str = '', max_results: int = 50, enable_fuzzy: bool = True, fuzzy_threshold: int = DEFAULT_FUZZY_THRESHOLD,
                  genre: Optional[str] = None, category: Optional[str] = None, min_rating: Optional[float] = None,
                  year: Optional[int] = None, year_from: Optional[int] = None, year_to: Optional[int] = None,
@@ -568,10 +587,16 @@ def find_matches(query_text: str = '', max_results: int = 50, enable_fuzzy: bool
     # Apply filters first to limit search space
     if genre:
         genre_lower = genre.lower()
-        movie_list = [m for m in movie_list if genre_lower in m.get('genre','').lower() or genre_lower in m.get('category','').lower()]
+        movie_list = [
+            m for m in movie_list
+            if genre_lower in _movie_text_parts(m)[0]
+        ]
     if category:
         cat_lower = category.lower()
-        movie_list = [m for m in movie_list if cat_lower in m.get('category','').lower() or cat_lower in m.get('genre','').lower()]
+        movie_list = [
+            m for m in movie_list
+            if cat_lower in _movie_text_parts(m)[1]
+        ]
     if min_rating is not None:
         movie_list = [m for m in movie_list if isinstance(m.get('rating'), (int,float)) and m.get('rating') >= min_rating]
     if year is not None:

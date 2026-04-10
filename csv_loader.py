@@ -48,7 +48,6 @@ def load_movies_from_csv(movies_csv_path: str = 'movies_cleaned.csv') -> List[Di
                         year_int = int(year)
                     else:
                         # Try to extract year from title
-                        import re
                         year_match = re.search(r'\((\d{4})\)', title)
                         if year_match:
                             year_int = int(year_match.group(1))
