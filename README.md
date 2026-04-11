@@ -1,90 +1,98 @@
 # Movie Recommender
 
-A small, testable movie recommendation tool with a command-line interface and optional fuzzy search.
+A robust movie recommendation system with a FastAPI REST API and an interactive command-line interface.
 
-This repository contains:
+**Live Demo:** [https://movie-recommender-7zqv.onrender.com/](https://movie-recommender-7zqv.onrender.com/)
 
-- `movie_recommender.py` — core recommender and CLI entrypoint
-- `expand_dataset.py` — helper to expand or rebuild datasets
-- `movies_cleaned.csv`, `ratings_cleaned.csv` — example datasets used by the tests
+## Features
+
+- **REST API**: FastAPI-powered endpoints for search, favorites, and statistics.
+- **Interactive CLI**: Command-line tool for searching and managing favorites.
+- **Fuzzy Search**: Typo-tolerant movie searching (powered by RapidFuzz).
+- **Data Integration**: Combines built-in movies with external CSV datasets.
+- **Deployment Ready**: Configured for production with Gunicorn/Uvicorn and environment variables.
+
+## API Documentation
+
+When running the server, you can access the interactive API documentation at:
+
+- **Swagger UI**: [https://movie-recommender-7zqv.onrender.com/docs](https://movie-recommender-7zqv.onrender.com/docs)
+- **ReDoc**: [https://movie-recommender-7zqv.onrender.com/redoc](https://movie-recommender-7zqv.onrender.com/redoc)
 
 ## Installation
 
 Recommended: create and activate a virtual environment, then install dependencies:
 
 ```bash
-python -m venv .venv
-.\.venv\Scripts\activate    # Windows
+python -m venv venv
+source venv/bin/activate    # Linux/macOS
+# or
+.\venv\Scripts\activate    # Windows
+
 pip install -r requirements.txt
 ```
 
-RapidFuzz is optional but recommended for typo-tolerant searches:
+## Configuration
+
+Copy the template environment file and adjust as needed:
 
 ```bash
-pip install rapidfuzz
+cp .env.template .env
+```
+
+Key configuration options in `.env`:
+- `PORT`: API port (default: 8000)
+- `ALLOWED_ORIGINS`: CORS allowed origins
+- `FAVORITES_FILE`: Path to store favorites JSON
+- `MOVIES_CSV_PATH`: Path to movies dataset
+- `RATINGS_CSV_PATH`: Path to ratings dataset
+
+## Running the Application
+
+### Start the API Server
+
+```bash
+python run_api.py
+```
+
+For production deployment:
+```bash
+gunicorn api:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
+```
+
+### Start the Interactive CLI
+
+```bash
+python movie_recommender.py --menu
 ```
 
 ## Quick start (CLI)
 
-Run the recommender using the script directly or as a module:
+Run single queries from the command line:
 
 ```bash
-# Run as module (preferred when package-installed)
-python -m movie_recommender --query "Inception"
-
-# Or run the script directly
+# Basic search
 python movie_recommender.py --query "Inception"
+
+# JSON output with fuzzy matching
+python movie_recommender.py --query "Incption" --fuzzy --format json
 ```
 
-Examples with output format and fuzzy search:
+## Tests
+
+Run the test suite to verify the application:
 
 ```bash
-# JSON output
-python -m movie_recommender --query "Inception" --format json
-
-# Fuzzy search (requires RapidFuzz)
-python -m movie_recommender --query "Incption" --fuzzy --fuzzy-threshold 60 --format text
+PYTHONPATH=. pytest
 ```
-
-If you have a custom dataset file (JSON or CSV supported by loader), pass it with `--load`:
-
-```bash
-python -m movie_recommender --load my_movies.json --query "My Movie" --format json
-```
-
-## Public API
-
-The tests call the loader function provided by the module. Use:
-
-```py
-from movie_recommender import load_movies
-movies = load_movies("movies_cleaned.csv", "ratings_cleaned.csv")
-```
-
-If tests fail with a signature mismatch, update `load_movies` to accept the dataset paths used above.
-
-## Tests & CI
-
-Run tests locally with:
-
-```bash
-pytest -q
-```
-
-CI configuration is in `.github/workflows/ci.yml` (tests run on push/PR).
 
 ## Dataset notes
 
-The repository includes a cleaned dataset (`movies_cleaned.csv`, `ratings_cleaned.csv`). To regenerate or expand the dataset, use `expand_dataset.py` and follow its README/comments.
+The repository includes a cleaned dataset (`movies_cleaned.csv`, `ratings_cleaned.csv`). The system automatically integrates this data on startup.
 
 ## Contributing and License
 
-Contributions are welcome — open an issue or submit a pull request. Add a short `CONTRIBUTING.md` if you want contribution guidelines.
-
-This project does not include a license file; consider adding a `LICENSE` (for example, MIT) if you intend to make the project public.
+Contributions are welcome — open an issue or submit a pull request.
 
 ---
-
-For further edits, ensure examples match the actual CLI/loader signatures in `movie_recommender.py` and tests.
-
-
+Developed with FastAPI, Pydantic, and RapidFuzz.
