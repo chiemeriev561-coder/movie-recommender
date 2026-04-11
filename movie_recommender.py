@@ -9,7 +9,12 @@ import json
 import random
 import argparse
 import sys
+import os
 from collections import defaultdict
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import CSV loader for integrating external data
 try:
@@ -110,7 +115,7 @@ def initialize_movie_dataset():
     return len(movies)
 
 # Simple favorites persistence (stores movie references by name+year)
-FAVORITES_FILE = 'favorites.json'
+FAVORITES_FILE = os.getenv("FAVORITES_FILE", "favorites.json")
 
 def get_last_save_error() -> Optional[str]:
     """Return the last error message recorded when saving movies (or None)."""

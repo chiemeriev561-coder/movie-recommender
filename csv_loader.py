@@ -6,14 +6,23 @@ Loads movies and ratings from CSV files and integrates with the existing dataset
 import csv
 import logging
 import re
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 import statistics
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-def load_movies_from_csv(movies_csv_path: str = 'movies_cleaned.csv') -> List[Dict[str, Any]]:
+# Default CSV paths from environment variables
+MOVIES_CSV_PATH = os.getenv('MOVIES_CSV_PATH', 'movies_cleaned.csv')
+RATINGS_CSV_PATH = os.getenv('RATINGS_CSV_PATH', 'ratings_cleaned.csv')
+
+def load_movies_from_csv(movies_csv_path: str = MOVIES_CSV_PATH) -> List[Dict[str, Any]]:
     """
     Load movies from the CSV file and convert to the expected format.
     
@@ -90,7 +99,7 @@ def load_movies_from_csv(movies_csv_path: str = 'movies_cleaned.csv') -> List[Di
         logger.exception(f"Failed to load movies from CSV {movies_csv_path}: {e}")
         return movies
 
-def load_ratings_from_csv(ratings_csv_path: str = 'ratings_cleaned.csv') -> Dict[int, List[float]]:
+def load_ratings_from_csv(ratings_csv_path: str = RATINGS_CSV_PATH) -> Dict[int, List[float]]:
     """
     Load ratings from CSV and organize by movie ID.
     
@@ -203,8 +212,8 @@ def calculate_average_ratings(movies: List[Dict[str, Any]], ratings_by_movie: Di
     return updated_movies
 
 def integrate_csv_data(builtin_movies: List[Dict[str, Any]], 
-                      movies_csv_path: str = 'movies_cleaned.csv',
-                      ratings_csv_path: str = 'ratings_cleaned.csv') -> List[Dict[str, Any]]:
+                      movies_csv_path: str = MOVIES_CSV_PATH,
+                      ratings_csv_path: str = RATINGS_CSV_PATH) -> List[Dict[str, Any]]:
     """
     Integrate CSV data with built-in movies.
     
@@ -246,16 +255,21 @@ def integrate_csv_data(builtin_movies: List[Dict[str, Any]],
     
     return all_movies
 
-def get_csv_statistics() -> Dict[str, Any]:
+def get_csv_statistics(movies_csv_path: str = MOVIES_CSV_PATH, 
+                       ratings_csv_path: str = RATINGS_CSV_PATH) -> Dict[str, Any]:
     """
     Get statistics about the CSV data.
     
+    Args:
+        movies_csv_path: Path to movies CSV file
+        ratings_csv_path: Path to ratings CSV file
+        
     Returns:
         Dictionary with statistics
     """
     try:
-        movies = load_movies_from_csv()
-        ratings_by_movie = load_ratings_from_csv()
+        movies = load_movies_from_csv(movies_csv_path)
+        ratings_by_movie = load_ratings_from_csv(ratings_csv_path)
         
         # Calculate statistics
         total_ratings = sum(len(ratings) for ratings in ratings_by_movie.values())

@@ -3,12 +3,20 @@ Movie Recommender API
 FastAPI application exposing movie recommendation functionality as REST endpoints
 """
 
+import os
+import logging
+from contextlib import asynccontextmanager
+from typing import List, Optional, Dict, Any
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-import logging
-from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import the existing movie recommender functionality
 from movie_recommender import (
@@ -25,18 +33,52 @@ try:
 except ImportError:
     _HAS_CSV_STATS = False
 
+# Configuration from environment variables
+PORT = int(os.getenv("PORT", "8000"))
+HOST = os.getenv("HOST", "0.0.0.0")
+RELOAD = os.getenv("RELOAD", "false").lower() == "true"
+LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifecycle manager for the FastAPI application."""
+    logger.info("Starting Movie Recommender API")
+    
+    # Load favorites from file
+    favorites_path = os.getenv("FAVORITES_FILE", "favorites.json")
+    load_favorites(favorites_path)
+    logger.info(f"Loaded {len(get_favorite_entries())} favorites from {favorites_path}")
+    
+    logger.info(f"API ready with {len(movies)} movies in dataset")
+    yield
+    logger.info("Shutting down Movie Recommender API")
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Movie Recommender API",
     description="A REST API for movie recommendations with search, filtering, and favorites management",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Pydantic models for request/response
 class MovieResponse(BaseModel):
@@ -75,20 +117,6 @@ class SearchFilters(BaseModel):
     year_to: Optional[int] = Field(None, ge=1900, le=2030, description="Year range end")
     sort_by: Optional[str] = Field(None, pattern="^(rating|box_office|year)$")
 
-# Startup event to initialize favorites
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the API by loading favorites and expanding dataset if needed."""
-    logger.info("Starting Movie Recommender API")
-    
-    # Load favorites from file
-    load_favorites()
-    logger.info(f"Loaded {len(get_favorite_entries())} favorites")
-    
-    # Expand dataset if needed (optional - can be disabled for production)
-    # expand_dataset_if_needed(min_total=100, auto_save=False)
-    logger.info(f"API ready with {len(movies)} movies in dataset")
-
 # Root endpoint
 @app.get("/")
 async def root():
@@ -112,7 +140,7 @@ async def search_movies(
     year: Optional[int] = Query(None, ge=1900, le=2030, description="Filter by year"),
     year_from: Optional[int] = Query(None, ge=1900, le=2030, description="Year from"),
     year_to: Optional[int] = Query(None, ge=1900, le=2030, description="Year to"),
-    sort_by: Optional[str] = Query(None, regex="^(rating|box_office|year)$", description="Sort by field"),
+    sort_by: Optional[str] = Query(None, pattern="^(rating|box_office|year)$", description="Sort by field"),
     fuzzy: bool = Query(True, description="Enable fuzzy matching"),
     max_results: int = Query(50, ge=1, le=200, description="Maximum results to return")
 ):
@@ -213,7 +241,9 @@ async def get_favorites():
 async def add_to_favorites(favorite: FavoriteRequest):
     """Add a movie to favorites."""
     try:
-        success = add_favorite(favorite.name, favorite.year)
+        # Use configurable favorites file
+        favorites_path = os.getenv("FAVORITES_FILE", "favorites.json")
+        success = add_favorite(favorite.name, favorite.year, favorites_path)
         if success:
             return {"message": f"Added '{favorite.name} ({favorite.year})' to favorites"}
         else:
@@ -234,7 +264,9 @@ async def add_to_favorites(favorite: FavoriteRequest):
 async def remove_from_favorites(favorite: FavoriteRequest):
     """Remove a movie from favorites."""
     try:
-        success = remove_favorite(favorite.name, favorite.year)
+        # Use configurable favorites file
+        favorites_path = os.getenv("FAVORITES_FILE", "favorites.json")
+        success = remove_favorite(favorite.name, favorite.year, favorites_path)
         if success:
             return {"message": f"Removed '{favorite.name} ({favorite.year})' from favorites"}
         else:
@@ -332,4 +364,4 @@ async def internal_error_handler(request, exc):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("api:app", host=HOST, port=PORT, reload=RELOAD)

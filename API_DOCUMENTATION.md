@@ -7,38 +7,47 @@ This REST API provides movie recommendation functionality including search, filt
 ## Quick Start
 
 1. **Activate virtual environment:**
-   ```bash
-   source venv/bin/activate
-   ```
+
+```bash
+source venv/bin/activate
+```
 
 2. **Start the API server:**
-   ```bash
-   python run_api.py
-   ```
-   or
-   ```bash
-   uvicorn api:app --host 0.0.0.0 --port 8000 --reload
-   ```
+
+```bash
+python run_api.py
+```
+
+or
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+```
 
 3. **Access the API:**
-   - Interactive docs: http://localhost:8000/docs
-   - ReDoc: http://localhost:8000/redoc
-   - Health check: http://localhost:8000/api/health
+
+- Interactive docs: <http://localhost:8000/docs>
+- ReDoc: <http://localhost:8000/redoc>
+- Health check: <http://localhost:8000/api/health>
 
 ## Endpoints
 
 ### Base URL
+
 ```
 http://localhost:8000
 ```
 
 ### 1. Root Endpoint
+
 ```
 GET /
 ```
+
 Returns basic API information and statistics.
 
 **Response:**
+
 ```json
 {
   "message": "Movie Recommender API",
@@ -51,12 +60,15 @@ Returns basic API information and statistics.
 ```
 
 ### 2. Movie Search
+
 ```
 GET /api/movies/search
 ```
+
 Search for movies with optional filters and sorting.
 
 **Query Parameters:**
+
 - `q` (optional): Search query (movie name, genre, etc.)
 - `genre` (optional): Filter by genre
 - `category` (optional): Filter by category
@@ -69,6 +81,7 @@ Search for movies with optional filters and sorting.
 - `max_results` (optional): Maximum results (1-200, default: 50)
 
 **Examples:**
+
 ```bash
 # Search for action movies
 curl "http://localhost:8000/api/movies/search?q=action"
@@ -81,21 +94,27 @@ curl "http://localhost:8000/api/movies/search?year=2021&sort_by=box_office"
 ```
 
 ### 3. Top Rated Movies
+
 ```
 GET /api/movies/top?limit=10
 ```
+
 Get top-rated movies sorted by rating.
 
 **Parameters:**
+
 - `limit`: Number of movies to return (1-50, default: 10)
 
 ### 4. Genres
+
 ```
 GET /api/genres
 ```
+
 Get all available genres with movie counts.
 
 **Response:**
+
 ```json
 [
   {"genre": "Action", "count": 8},
@@ -105,26 +124,33 @@ Get all available genres with movie counts.
 ```
 
 ### 5. Categories
+
 ```
 GET /api/categories
 ```
+
 Get all available categories with movie counts.
 
 ### 6. Favorites Management
 
 #### Get Favorites
+
 ```
 GET /api/favorites
 ```
+
 Get all favorite movies with full details.
 
 #### Add to Favorites
+
 ```
 POST /api/favorites
 ```
+
 Add a movie to favorites.
 
 **Request Body:**
+
 ```json
 {
   "name": "Inception",
@@ -133,12 +159,15 @@ Add a movie to favorites.
 ```
 
 #### Remove from Favorites
+
 ```
 DELETE /api/favorites
 ```
+
 Remove a movie from favorites.
 
 **Request Body:**
+
 ```json
 {
   "name": "Inception",
@@ -147,25 +176,39 @@ Remove a movie from favorites.
 ```
 
 ### 7. Movie Details
+
 ```
 GET /api/movies/{name}/{year}
 ```
+
 Get detailed information about a specific movie.
 
 **Example:**
+
 ```bash
 curl "http://localhost:8000/api/movies/Inception/2010"
 ```
 
 ### 8. Health Check
+
 ```
 GET /api/health
 ```
+
 Check API health and get basic statistics.
+
+### 9. Statistics
+
+```
+GET /api/statistics
+```
+
+Get detailed statistics about movie dataset.
 
 ## Data Models
 
 ### Movie Response
+
 ```json
 {
   "name": "Inception",
@@ -178,6 +221,7 @@ Check API health and get basic statistics.
 ```
 
 ### Favorite Request
+
 ```json
 {
   "name": "Inception",
@@ -195,6 +239,7 @@ The API returns standard HTTP status codes:
 - `500 Internal Server Error`: Server error
 
 **Error Response Format:**
+
 ```json
 {
   "detail": "Error message description"
@@ -204,17 +249,20 @@ The API returns standard HTTP status codes:
 ## Features
 
 ### Search Capabilities
+
 - **Exact matching**: Movie names, genres, categories
 - **Fuzzy matching**: Intelligent typo tolerance (enabled by default)
 - **Filtering**: By genre, category, rating, year ranges
 - **Sorting**: By rating, box office, year
 
 ### Favorites System
+
 - Persistent storage in `favorites.json`
 - Add/remove movies by name and year
 - Automatic validation against movie database
 
 ### Performance
+
 - In-memory movie dataset for fast access
 - Optimized fuzzy search with RapidFuzz
 - Efficient filtering and sorting
@@ -222,11 +270,13 @@ The API returns standard HTTP status codes:
 ## Development
 
 ### Running in Development Mode
+
 ```bash
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### Running in Production
+
 ```bash
 uvicorn api:app --host 0.0.0.0 --port 8000 --workers 4
 ```
@@ -234,6 +284,7 @@ uvicorn api:app --host 0.0.0.0 --port 8000 --workers 4
 ## Testing the API
 
 ### Using curl
+
 ```bash
 # Basic search
 curl "http://localhost:8000/api/movies/search?q=batman"
@@ -248,6 +299,7 @@ curl -X POST "http://localhost:8000/api/favorites" \
 ```
 
 ### Using Python requests
+
 ```python
 import requests
 
@@ -264,10 +316,12 @@ response = requests.post("http://localhost:8000/api/favorites",
 ## Configuration
 
 ### Environment Variables
+
 - `VIRTUAL_ENV`: Virtual environment path (checked by startup script)
 
 ### Dataset
-- Movies are loaded from the built-in dataset in `movie_recommender.py`
+
+- Movies are loaded from the built-in dataset combined with CSV data
 - Favorites are persisted in `favorites.json`
 - Dataset can be expanded using the `expand_dataset_if_needed()` function
 
@@ -280,7 +334,9 @@ response = requests.post("http://localhost:8000/api/favorites",
 3. **CORS issues**: Add CORS middleware if accessing from web browsers
 
 ### Logs
+
 The API provides detailed logging for:
+
 - Search queries and results
 - Favorites operations
 - Errors and exceptions
