@@ -60,10 +60,10 @@ base_origins = [
 ]
 env_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
 ALLOWED_ORIGINS = list(dict.fromkeys(base_origins + env_origins))
-# More robust regex for any lovable.app subdomain (supporting both http and https)
+# More robust regex for any lovable.app or lovableproject.com subdomain
 # Defaults to a broader regex if not provided
 env_regex = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip()
-ALLOWED_ORIGIN_REGEX = env_regex if env_regex else r"https?://(.*\.)?lovable\.app"
+ALLOWED_ORIGIN_REGEX = env_regex if env_regex else r"https?://(.*\.)?lovable(app|project)\.com|https?://(.*\.)?lovable\.app"
 
 logger.info(f"ALLOWED_ORIGINS: {ALLOWED_ORIGINS}")
 logger.info(f"ALLOWED_ORIGIN_REGEX: {ALLOWED_ORIGIN_REGEX}")
