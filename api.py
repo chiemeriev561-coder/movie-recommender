@@ -37,15 +37,16 @@ PORT = int(os.getenv("PORT", "8000"))
 HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
-ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
+base_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "https://cine-craft-box.lovable.app",
+]
+env_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
+ALLOWED_ORIGINS = list(dict.fromkeys(base_origins + env_origins))
 ALLOWED_ORIGIN_REGEX = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip() or None
 FAVORITES_FILE = os.getenv("FAVORITES_FILE", "favorites.json")
-
-if not ALLOWED_ORIGINS and not ALLOWED_ORIGIN_REGEX:
-    ALLOWED_ORIGINS = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ]
 
 # Configure logging
 logging.basicConfig(
@@ -98,6 +99,7 @@ app.add_middleware(
 # Pydantic models for request/response
 class MovieResponse(BaseModel):
     name: str
+    
     year: int
     category: str
     genre: str
@@ -105,6 +107,11 @@ class MovieResponse(BaseModel):
     rating: float
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class FeaturedResponse(BaseModel):
+    latest_movies: List[MovieResponse]
+    old_movies: List[MovieResponse]
 
 class FavoriteRequest(BaseModel):
     name: str
@@ -144,6 +151,24 @@ async def root():
         "total_movies": len(movies),
         "favorites_count": len(get_favorite_entries())
     }
+
+
+@app.get("/api/movies/featured", response_model=FeaturedResponse)
+async def get_featured_movies():
+    """Provide recent and older movies for frontend landing-page sections."""
+    try:
+        latest = sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:10]
+        oldies = sorted(movies, key=lambda x: x.get("year", 0))[:10]
+        return {
+            "latest_movies": [MovieResponse(**movie) for movie in latest],
+            "old_movies": [MovieResponse(**movie) for movie in oldies],
+        }
+    except Exception as e:
+        logger.exception("Error getting featured movies")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred fetching featured datasets"
+        )
 
 # Movie search endpoint
 @app.get("/api/movies/search", response_model=List[MovieResponse])
