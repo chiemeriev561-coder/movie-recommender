@@ -93,13 +93,16 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
+
+ # Make sure ALLOWED_ORIGINS includes your lovable URL
+# e.g., ALLOWED_ORIGINS = ["https://cine-craft-box.lovable.app"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Content-Type", "X-API-Key"],
+    allow_origins= ["https://cine-craft-box.lovable.app"],
+    allow_credentials=True,  # Changed to True for better frontend compatibility
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"], # Added OPTIONS for preflight
+    allow_headers=["*"], # Flexible headers are safer during development
 )
 
 # Pydantic models for request/response
