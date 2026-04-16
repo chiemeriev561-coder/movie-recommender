@@ -38,7 +38,14 @@ HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
 ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
+ALLOWED_ORIGIN_REGEX = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip() or None
 FAVORITES_FILE = os.getenv("FAVORITES_FILE", "favorites.json")
+
+if not ALLOWED_ORIGINS and not ALLOWED_ORIGIN_REGEX:
+    ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
 
 # Configure logging
 logging.basicConfig(
@@ -81,7 +88,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins= ALLOWED_ORIGINS,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,  # Changed to True for better frontend compatibility
     allow_methods=["*"], # Added OPTIONS for preflight
     allow_headers=["*"], # Flexible headers are safer during development

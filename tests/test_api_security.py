@@ -12,3 +12,13 @@ def test_add_favorite_persists_json_to_configured_path(monkeypatch, tmp_path):
 
     assert added is True
     assert json.loads(favorites_path.read_text(encoding="utf-8")) == [{"name": "Inception", "year": 2010}]
+
+
+def test_cors_configuration_allows_lovable_origin_regex():
+    cors_middleware = next(
+        middleware for middleware in api.app.user_middleware
+        if middleware.cls.__name__ == "CORSMiddleware"
+    )
+
+    assert "https://cine-craft-box.lovable.app" in cors_middleware.kwargs["allow_origins"]
+    assert cors_middleware.kwargs["allow_origin_regex"] == r"https://.*\.lovable\.app"

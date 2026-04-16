@@ -42,7 +42,8 @@ cp .env.template .env
 
 Key configuration options in `.env`:
 - `PORT`: API port (default: 8000)
-- `ALLOWED_ORIGINS`: CORS allowed origins
+- `ALLOWED_ORIGINS`: Comma-separated CORS allowed origins
+- `ALLOWED_ORIGIN_REGEX`: Optional regex for additional allowed origins such as Lovable preview URLs
 - `FAVORITES_FILE`: Path to store favorites JSON
 - `MOVIES_CSV_PATH`: Path to movies dataset
 - `RATINGS_CSV_PATH`: Path to ratings dataset
