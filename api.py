@@ -11,11 +11,22 @@ from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(override=True)
+
+# Configure logging early
+LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 # Import the existing movie recommender functionality
 from movie_recommender import (
@@ -37,24 +48,44 @@ PORT = int(os.getenv("PORT", "8000"))
 HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
+# Add bare domains and both http/https for common origins
 base_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:3000",
     "https://cine-craft-box.lovable.app",
+    "http://cine-craft-box.lovable.app",
+    "https://lovable.app",
+    "http://lovable.app",
 ]
 env_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
 ALLOWED_ORIGINS = list(dict.fromkeys(base_origins + env_origins))
-ALLOWED_ORIGIN_REGEX = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip() or None
+# More robust regex for any lovable.app subdomain (supporting both http and https)
+# Defaults to a broader regex if not provided
+env_regex = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip()
+ALLOWED_ORIGIN_REGEX = env_regex if env_regex else r"https?://(.*\.)?lovable\.app"
+
+logger.info(f"ALLOWED_ORIGINS: {ALLOWED_ORIGINS}")
+logger.info(f"ALLOWED_ORIGIN_REGEX: {ALLOWED_ORIGIN_REGEX}")
+
 FAVORITES_FILE = os.getenv("FAVORITES_FILE", "favorites.json")
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
-
+# Custom CORS Logging Middleware
+class CORSLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # We process preflight (OPTIONS) or actual requests
+        origin = request.headers.get("origin")
+        
+        response = await call_next(request)
+        
+        # Log if it was a CORS rejection (often 400 with our current Starlette version)
+        if response.status_code == 400 and origin:
+             # Check if it looks like a CORS rejection
+             # Since we can't easily read response body here without complex code, 
+             # we just log that we got a 400 from an origin.
+             logger.warning(f"Possible CORS rejection (400) for origin: {origin}")
+        
+        return response
 
 def refresh_favorites_state() -> None:
     """Refresh in-memory favorites from disk so all workers see current state."""
@@ -95,6 +126,7 @@ app.add_middleware(
     allow_methods=["*"], # Added OPTIONS for preflight
     allow_headers=["*"], # Flexible headers are safer during development
 )
+app.add_middleware(CORSLoggingMiddleware)
 
 # Pydantic models for request/response
 class MovieResponse(BaseModel):
