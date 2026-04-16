@@ -43,6 +43,7 @@ cp .env.template .env
 Key configuration options in `.env`:
 - `PORT`: API port (default: 8000)
 - `ALLOWED_ORIGINS`: CORS allowed origins
+- `MUTATION_API_KEY`: Required `X-API-Key` value for `/api/favorites` endpoints
 - `FAVORITES_FILE`: Path to store favorites JSON
 - `MOVIES_CSV_PATH`: Path to movies dataset
 - `RATINGS_CSV_PATH`: Path to ratings dataset

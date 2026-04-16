@@ -21,13 +21,17 @@ def test_genre_filter_uses_all_genres_from_csv_rows():
     assert "Toy Story" in names
 
 
-def test_remove_favorite_rolls_back_when_save_fails(monkeypatch):
-    mr.favorites = [{"name": "Inception", "year": 2010}]
-    mr._favorites_set = {("inception", 2010)}
+def test_remove_favorite_rolls_back_when_save_fails(monkeypatch, tmp_path):
+    favorites_path = tmp_path / "favorites.json"
+    mr.load_favorites(str(favorites_path))
+    mr.add_favorite("Inception", 2010, path=str(favorites_path))
 
-    monkeypatch.setattr(mr, "save_favorites", lambda path="favorites.json": False)
+    def fail_write(path, payload):
+        raise OSError("disk full")
 
-    removed = mr.remove_favorite("Inception", 2010, path="ignored.json")
+    monkeypatch.setattr(mr, "_atomic_write_json", fail_write)
+
+    removed = mr.remove_favorite("Inception", 2010, path=str(favorites_path))
 
     assert removed is False
     assert mr.favorites == [{"name": "Inception", "year": 2010}]

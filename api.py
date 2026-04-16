@@ -7,9 +7,8 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any
-from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, Query, status, Header, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -38,7 +37,8 @@ PORT = int(os.getenv("PORT", "8000"))
 HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
+FAVORITES_FILE = os.getenv("FAVORITES_FILE", "favorites.json")
 
 # Configure logging
 logging.basicConfig(
@@ -47,15 +47,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def refresh_favorites_state() -> None:
+    """Refresh in-memory favorites from disk so all workers see current state."""
+    load_favorites(FAVORITES_FILE)
+
+
+def require_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")) -> None:
+    """Protect favorites routes with a simple shared API key."""
+    configured_key = os.getenv("MUTATION_API_KEY", "")
+    if not configured_key:
+        logger.error("Favorites API key is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Favorites API is not configured"
+        )
+    if x_api_key != configured_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key"
+        )
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the FastAPI application."""
     logger.info("Starting Movie Recommender API")
     
     # Load favorites from file
-    favorites_path = os.getenv("FAVORITES_FILE", "favorites.json")
-    load_favorites(favorites_path)
-    logger.info(f"Loaded {len(get_favorite_entries())} favorites from {favorites_path}")
+    load_favorites(FAVORITES_FILE)
+    logger.info(f"Loaded {len(get_favorite_entries())} favorites from {FAVORITES_FILE}")
+    if not os.getenv("MUTATION_API_KEY", ""):
+        logger.warning("MUTATION_API_KEY is not set; favorites routes will return 503")
     
     logger.info(f"API ready with {len(movies)} movies in dataset")
     yield
@@ -75,9 +97,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 # Pydantic models for request/response
@@ -121,6 +143,7 @@ class SearchFilters(BaseModel):
 @app.get("/")
 async def root():
     """API root endpoint with basic information."""
+    refresh_favorites_state()
     return {
         "message": "Movie Recommender API",
         "version": "1.0.0",
@@ -224,10 +247,11 @@ async def get_categories():
         )
 
 # Favorites endpoints
-@app.get("/api/favorites", response_model=List[MovieResponse])
+@app.get("/api/favorites", response_model=List[MovieResponse], dependencies=[Depends(require_api_key)])
 async def get_favorites():
     """Get all favorite movies with full details."""
     try:
+        refresh_favorites_state()
         fav_movies = get_favorite_movies()
         return [MovieResponse(**movie) for movie in fav_movies]
     except Exception as e:
@@ -237,13 +261,12 @@ async def get_favorites():
             detail="An error occurred while retrieving favorites"
         )
 
-@app.post("/api/favorites", response_model=Dict[str, str])
+@app.post("/api/favorites", response_model=Dict[str, str], dependencies=[Depends(require_api_key)])
 async def add_to_favorites(favorite: FavoriteRequest):
     """Add a movie to favorites."""
     try:
         # Use configurable favorites file
-        favorites_path = os.getenv("FAVORITES_FILE", "favorites.json")
-        success = add_favorite(favorite.name, favorite.year, favorites_path)
+        success = add_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
             return {"message": f"Added '{favorite.name} ({favorite.year})' to favorites"}
         else:
@@ -260,13 +283,12 @@ async def add_to_favorites(favorite: FavoriteRequest):
             detail="An error occurred while adding to favorites"
         )
 
-@app.delete("/api/favorites", response_model=Dict[str, str])
+@app.delete("/api/favorites", response_model=Dict[str, str], dependencies=[Depends(require_api_key)])
 async def remove_from_favorites(favorite: FavoriteRequest):
     """Remove a movie from favorites."""
     try:
         # Use configurable favorites file
-        favorites_path = os.getenv("FAVORITES_FILE", "favorites.json")
-        success = remove_favorite(favorite.name, favorite.year, favorites_path)
+        success = remove_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
             return {"message": f"Removed '{favorite.name} ({favorite.year})' from favorites"}
         else:
@@ -287,6 +309,7 @@ async def remove_from_favorites(favorite: FavoriteRequest):
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
+    refresh_favorites_state()
     return {
         "status": "healthy",
         "movies_count": len(movies),
@@ -299,6 +322,7 @@ async def health_check():
 async def get_statistics():
     """Get detailed statistics about the movie dataset."""
     try:
+        refresh_favorites_state()
         stats = {
             "total_movies": len(movies),
             "favorites_count": len(get_favorite_entries()),

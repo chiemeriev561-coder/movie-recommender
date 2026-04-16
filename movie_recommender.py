@@ -10,8 +10,15 @@ import random
 import argparse
 import sys
 import os
+import tempfile
 from collections import defaultdict
+from contextlib import contextmanager
 from dotenv import load_dotenv
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 # Load environment variables from .env file
 load_dotenv()
@@ -117,6 +124,80 @@ def initialize_movie_dataset():
 # Simple favorites persistence (stores movie references by name+year)
 FAVORITES_FILE = os.getenv("FAVORITES_FILE", "favorites.json")
 
+
+def _normalize_favorite_entries(data: Any) -> List[Dict[str, Any]]:
+    """Validate favorites payload and return normalized entries."""
+    if not isinstance(data, list):
+        logger.warning("Invalid favorites format: expected list, got %s", type(data).__name__)
+        return []
+
+    valid = []
+    for entry in data:
+        if (
+            isinstance(entry, dict)
+            and 'name' in entry
+            and 'year' in entry
+            and isinstance(entry['name'], str)
+            and isinstance(entry['year'], int)
+        ):
+            valid.append({'name': entry['name'], 'year': entry['year']})
+        else:
+            logger.warning("Skipping invalid favorite entry: %r", entry)
+    return valid
+
+
+def _set_favorites_state(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Replace in-memory favorites state with normalized entries."""
+    global favorites, _favorites_set
+    favorites = entries
+    _favorites_set = {(f['name'].lower(), f['year']) for f in favorites}
+    return favorites
+
+
+def _read_favorites_file(path: str) -> List[Dict[str, Any]]:
+    """Read and validate favorites from disk without mutating global state."""
+    p = Path(path)
+    if not p.exists():
+        return []
+
+    with p.open('r', encoding='utf-8') as f:
+        data = json.load(f)
+    return _normalize_favorite_entries(data)
+
+
+def _atomic_write_json(path: str, payload: Any) -> None:
+    """Atomically replace a JSON file to avoid partial writes."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{p.name}.", suffix=".tmp", dir=str(p.parent))
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, p)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+@contextmanager
+def _favorites_file_lock(path: str):
+    """Serialize favorites file access across processes when supported."""
+    lock_path = Path(path).with_suffix(Path(path).suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open('a+', encoding='utf-8') as lock_file:
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
 def get_last_save_error() -> Optional[str]:
     """Return the last error message recorded when saving movies (or None)."""
     return last_save_error
@@ -131,45 +212,13 @@ def load_favorites(path: str = FAVORITES_FILE) -> List[Dict[str, Any]]:
     Returns:
         List of favorite movie entries, each with 'name' and 'year'.
     """
-    global favorites, _favorites_set
-    p = Path(path)
-    
-    if not p.exists():
-        favorites = []
-        _favorites_set = set()
-        return favorites
-    
     try:
-        with p.open('r', encoding='utf-8') as f:
-            data = json.load(f)
-            
-        if not isinstance(data, list):
-            logger.warning("Invalid favorites format: expected list, got %s", type(data).__name__)
-            favorites = []
-            _favorites_set = set()
-            return favorites
-            
-        # Validate and clean entries
-        valid = []
-        for entry in data:
-            if (isinstance(entry, dict) and 
-                'name' in entry and 
-                'year' in entry and 
-                isinstance(entry['name'], str) and 
-                isinstance(entry['year'], int)):
-                valid.append({'name': entry['name'], 'year': entry['year']})
-            else:
-                logger.warning("Skipping invalid favorite entry: %r", entry)
-                
-        favorites = valid
-        _favorites_set = {(f['name'].lower(), f['year']) for f in favorites}
-        return favorites
-        
+        with _favorites_file_lock(path):
+            entries = _read_favorites_file(path)
+        return _set_favorites_state(entries)
     except Exception as e:
         logger.exception("Failed to load favorites from %s: %s", path, str(e))
-        favorites = []
-        _favorites_set = set()
-        return favorites
+        return _set_favorites_state([])
 
 def save_favorites(path: str = FAVORITES_FILE) -> bool:
     """
@@ -183,10 +232,8 @@ def save_favorites(path: str = FAVORITES_FILE) -> bool:
     """
     global last_save_error
     try:
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with p.open('w', encoding='utf-8') as f:
-            json.dump(favorites, f, indent=2)
+        with _favorites_file_lock(path):
+            _atomic_write_json(path, favorites)
         last_save_error = None
         return True
     except Exception as e:
@@ -207,44 +254,41 @@ def add_favorite(name: str, year: int, path: str = FAVORITES_FILE) -> bool:
     Returns:
         bool: True if added successfully, False otherwise.
     """
-    global favorites, _favorites_set
-    
+    global last_save_error
+
     if not isinstance(name, str) or not isinstance(year, int):
         logger.warning("Invalid name or year type")
         return False
-        
-    # Normalize name for comparison
+
     name_lower = name.lower()
-    
-    # Check if already favorited
-    if (name_lower, year) in _favorites_set:
-        logger.info("Movie already in favorites: %s (%d)", name, year)
-        return False
-        
-    # Check if movie exists in dataset
     movie_exists = any(
         m.get('name', '').lower() == name_lower 
         and m.get('year') == year 
         for m in movies
     )
-    
     if not movie_exists:
         logger.warning("Movie not found in dataset: %s (%d)", name, year)
         return False
-        
-    # Add to favorites
-    entry = {'name': name, 'year': year}
-    favorites.append(entry)
-    _favorites_set.add((name_lower, year))
-    
-    # Save to disk
-    if not save_favorites(path):
-        # Rollback on save failure
-        favorites.remove(entry)
-        _favorites_set.discard((name_lower, year))
+
+    try:
+        with _favorites_file_lock(path):
+            current_favorites = _read_favorites_file(path)
+            current_set = {(f['name'].lower(), f['year']) for f in current_favorites}
+            if (name_lower, year) in current_set:
+                logger.info("Movie already in favorites: %s (%d)", name, year)
+                _set_favorites_state(current_favorites)
+                return False
+
+            updated_favorites = current_favorites + [{'name': name, 'year': year}]
+            _atomic_write_json(path, updated_favorites)
+            _set_favorites_state(updated_favorites)
+            last_save_error = None
+            return True
+    except Exception as e:
+        error_msg = f"Failed to save favorites to {path}: {str(e)}"
+        logger.exception(error_msg)
+        last_save_error = error_msg
         return False
-        
-    return True
 
 def remove_favorite(name: str, year: int, path: str = FAVORITES_FILE) -> bool:
     """
@@ -258,30 +302,31 @@ def remove_favorite(name: str, year: int, path: str = FAVORITES_FILE) -> bool:
     Returns:
         bool: True if removed successfully, False otherwise.
     """
-    global favorites, _favorites_set
-    
+    global last_save_error
+
     name_lower = name.lower()
-    
-    if (name_lower, year) not in _favorites_set:
+
+    try:
+        with _favorites_file_lock(path):
+            current_favorites = _read_favorites_file(path)
+            current_set = {(f['name'].lower(), f['year']) for f in current_favorites}
+            if (name_lower, year) not in current_set:
+                _set_favorites_state(current_favorites)
+                return False
+
+            updated_favorites = [
+                f for f in current_favorites
+                if not (f['name'].lower() == name_lower and f['year'] == year)
+            ]
+            _atomic_write_json(path, updated_favorites)
+            _set_favorites_state(updated_favorites)
+            last_save_error = None
+            return True
+    except Exception as e:
+        error_msg = f"Failed to save favorites to {path}: {str(e)}"
+        logger.exception(error_msg)
+        last_save_error = error_msg
         return False
-    
-    previous_favorites = favorites.copy()
-    previous_set = _favorites_set.copy()
-    
-    # Remove from both data structures
-    favorites = [
-        f for f in favorites
-        if not (f['name'].lower() == name_lower and f['year'] == year)
-    ]
-    _favorites_set.discard((name_lower, year))
-    
-    # Save changes
-    if save_favorites(path):
-        return True
-    
-    favorites = previous_favorites
-    _favorites_set = previous_set
-    return False
 
 def get_favorite_entries() -> List[Dict[str, Any]]:
     """
