@@ -101,7 +101,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins= ["https://cine-craft-box.lovable.app"],
     allow_credentials=True,  # Changed to True for better frontend compatibility
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"], # Added OPTIONS for preflight
+    allow_methods=["*"], # Added OPTIONS for preflight
     allow_headers=["*"], # Flexible headers are safer during development
 )
 
