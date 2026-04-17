@@ -17,6 +17,11 @@ from starlette.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from dotenv import load_dotenv
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
 # Load environment variables from .env file
 load_dotenv(override=True)
 
@@ -27,6 +32,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Initialize Limiter for rate limiting
+limiter = Limiter(key_func=get_remote_address)
 
 # Import the existing movie recommender functionality
 from movie_recommender import (
@@ -103,7 +111,6 @@ async def lifespan(app: FastAPI):
     logger.info(f"API ready with {len(movies)} movies in dataset")
     yield
     logger.info("Shutting down Movie Recommender API")
-
 # Initialize FastAPI app
 app = FastAPI(
     title="Movie Recommender API",
@@ -114,6 +121,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Rate limiting setup
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# Custom CORS Logging Middleware
 
  # Make sure ALLOWED_ORIGINS includes your lovable URL
 # e.g., ALLOWED_ORIGINS = ["https://cine-craft-box.lovable.app"]
@@ -172,7 +185,8 @@ class SearchFilters(BaseModel):
 
 # Root endpoint
 @app.get("/")
-async def root():
+@limiter.limit("60/minute")
+async def root(request: Request):
     """API root endpoint with basic information."""
     refresh_favorites_state()
     return {
@@ -186,7 +200,8 @@ async def root():
 
 
 @app.get("/api/movies/featured", response_model=FeaturedResponse)
-async def get_featured_movies():
+@limiter.limit("20/minute")
+async def get_featured_movies(request: Request):
     """Provide recent and older movies for frontend landing-page sections."""
     try:
         latest = sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:10]
@@ -204,7 +219,9 @@ async def get_featured_movies():
 
 # Movie search endpoint
 @app.get("/api/movies/search", response_model=List[MovieResponse])
+@limiter.limit("30/minute")
 async def search_movies(
+    request: Request,
     q: Optional[str] = Query(None, description="Search query (movie name, genre, etc.)"),
     genre: Optional[str] = Query(None, description="Filter by genre"),
     category: Optional[str] = Query(None, description="Filter by category"),
@@ -255,7 +272,9 @@ async def search_movies(
 
 # Top rated movies endpoint
 @app.get("/api/movies/top", response_model=List[MovieResponse])
+@limiter.limit("20/minute")
 async def get_top_movies(
+    request: Request,
     limit: int = Query(10, ge=1, le=50, description="Number of top movies to return")
 ):
     """Get top-rated movies sorted by rating."""
@@ -271,7 +290,8 @@ async def get_top_movies(
 
 # Genres endpoint
 @app.get("/api/genres", response_model=List[GenreResponse])
-async def get_genres():
+@limiter.limit("20/minute")
+async def get_genres(request: Request):
     """Get all available genres with movie counts."""
     try:
         return [GenreResponse(**genre) for genre in get_available_genres()]
@@ -284,7 +304,8 @@ async def get_genres():
 
 # Categories endpoint
 @app.get("/api/categories", response_model=List[CategoryResponse])
-async def get_categories():
+@limiter.limit("20/minute")
+async def get_categories(request: Request):
     """Get all available categories with movie counts."""
     try:
         return [CategoryResponse(**category) for category in get_available_categories()]
@@ -297,7 +318,8 @@ async def get_categories():
 
 # Favorites endpoints
 @app.get("/api/favorites", response_model=List[MovieResponse])
-async def get_favorites():
+@limiter.limit("20/minute")
+async def get_favorites(request: Request):
     """Get all favorite movies with full details."""
     try:
         refresh_favorites_state()
@@ -311,7 +333,8 @@ async def get_favorites():
         )
 
 @app.post("/api/favorites", response_model=Dict[str, str])
-async def add_to_favorites(favorite: FavoriteRequest):
+@limiter.limit("5/minute")
+async def add_to_favorites(request: Request, favorite: FavoriteRequest):
     """Add a movie to favorites."""
     try:
         # Use configurable favorites file
@@ -333,7 +356,8 @@ async def add_to_favorites(favorite: FavoriteRequest):
         )
 
 @app.delete("/api/favorites", response_model=Dict[str, str])
-async def remove_from_favorites(favorite: FavoriteRequest):
+@limiter.limit("5/minute")
+async def remove_from_favorites(request: Request, favorite: FavoriteRequest):
     """Remove a movie from favorites."""
     try:
         # Use configurable favorites file
@@ -356,7 +380,8 @@ async def remove_from_favorites(favorite: FavoriteRequest):
 
 # Health check endpoint
 @app.get("/api/health")
-async def health_check():
+@limiter.limit("60/minute")
+async def health_check(request: Request):
     """Health check endpoint."""
     refresh_favorites_state()
     return {
@@ -368,7 +393,8 @@ async def health_check():
 
 # CSV statistics endpoint
 @app.get("/api/statistics")
-async def get_statistics():
+@limiter.limit("20/minute")
+async def get_statistics(request: Request):
     """Get detailed statistics about the movie dataset."""
     try:
         refresh_favorites_state()
@@ -400,7 +426,8 @@ async def get_statistics():
 
 # Movie details by name and year
 @app.get("/api/movies/{name}/{year}", response_model=MovieResponse)
-async def get_movie_details(name: str, year: int):
+@limiter.limit("30/minute")
+async def get_movie_details(request: Request, name: str, year: int):
     """Get detailed information about a specific movie."""
     try:
         for movie in movies:
