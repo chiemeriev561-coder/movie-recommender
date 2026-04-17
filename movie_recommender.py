@@ -612,7 +612,7 @@ def _movie_text_parts(movie: Dict[str, Any]) -> Tuple[str, str]:
     return genre_text, category_text
 
 
-def find_matches(query_text: str = '', max_results: int = 50, enable_fuzzy: bool = True, fuzzy_threshold: int = DEFAULT_FUZZY_THRESHOLD,
+def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool = True, fuzzy_threshold: int = DEFAULT_FUZZY_THRESHOLD,
                  genre: Optional[str] = None, category: Optional[str] = None, min_rating: Optional[float] = None,
                  year: Optional[int] = None, year_from: Optional[int] = None, year_to: Optional[int] = None,
                  sort_by: Optional[str] = None) -> List[dict]:
@@ -832,7 +832,7 @@ def _parse_args(argv=None):
     p.add_argument('--year-from', type=int, default=None, help='Filter by year-from (inclusive)')
     p.add_argument('--year-to', type=int, default=None, help='Filter by year-to (inclusive)')
     p.add_argument('--sort-by', choices=['rating','box_office','year'], default=None, help='Sort results by this field')
-    p.add_argument('--max-results', type=int, default=50, help='Maximum number of results to return')
+    p.add_argument('--max-results', type=int, default=30, help='Maximum number of results to return')
 
     p.add_argument('--list-genres', action='store_true', help='List available genres and exit')
     p.add_argument('--list-categories', action='store_true', help='List available categories and exit')

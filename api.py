@@ -231,7 +231,7 @@ async def search_movies(
     year_to: Optional[int] = Query(None, ge=1900, le=2030, description="Year to"),
     sort_by: Optional[str] = Query(None, pattern="^(rating|box_office|year)$", description="Sort by field"),
     fuzzy: bool = Query(True, description="Enable fuzzy matching"),
-    max_results: int = Query(50, ge=1, le=200, description="Maximum results to return")
+    max_results: int = Query(30, ge=1, le=200, description="Maximum results to return")
 ):
     """
     Search for movies with optional filters and sorting.
