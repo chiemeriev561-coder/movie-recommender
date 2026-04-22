@@ -185,7 +185,7 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
         # Fetch multiple pages to get a larger pool (approx 60-100 movies)
         for page in range(1, pages + 1):
             try:
-                # Use both trending and popular to get a diverse set
+                # Use popular for a diverse set
                 url = f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&page={page}"
                 response = await client.get(url)
                 if response.status_code == 200:
@@ -256,13 +256,8 @@ async def get_trending_movies(request: Request, genre: Optional[str] = Query(Non
     engagement_count = len(user_genres[user_ip])
     is_unlocked = engagement_count >= 5
 
-    # Determine if we should return the new object or just the list for the frontend
-    # If the frontend hasn't been updated, we return just the list
-    results = [MovieResponse(**m) for m in trending_data]
-    
-    # Check if client explicitly asks for engagement info via header or if we just want to be safe
-    # For now, let's return a list by default to ensure the frontend doesn't break
-    return results
+    # Return simple list for frontend compatibility
+    return [MovieResponse(**m) for m in trending_data]
 
 @app.get("/api/movies/search")
 @limiter.limit("30/minute")
@@ -306,62 +301,6 @@ async def search_movies(
     if not is_unlocked:
         return tmdb_matches[:max_results]
     else:
-        csv_matches = find_matches(query_text=q or "", max_results=max_results, genre=genre)
-        csv_formatted = [MovieResponse(**m) for m in csv_matches]
-        
-        seen = {(m.name, m.year) for m in tmdb_matches}
-        unique_csv = [m for m in csv_formatted if (m.name, m.year) not in seen]
-        
-        return (tmdb_matches + unique_csv)[:max_results]
-    """
-    Unified Search Endpoint:
-    - Tracks engagement by unique genres.
-    - Locked: Searches only live TMDB trending data (Name & Genre).
-    - Unlocked: Searches BOTH live TMDB and Classic Vault (CSV).
-    """
-    user_ip = request.client.host if request.client else "unknown"
-    if user_ip not in user_genres:
-        user_genres[user_ip] = set()
-
-    # Track engagement if genre is searched
-    if genre:
-        user_genres[user_ip].add(genre.lower())
-
-    engagement_count = len(user_genres.get(user_ip, set()))
-    is_unlocked = engagement_count >= 5
-
-    # If no query and no genre, return empty results early
-    if not q and not genre:
-        return {
-            "source": "N/A", 
-            "results": [],
-            "is_unlocked": is_unlocked
-        }
-
-    # Always fetch trending for "Live" results
-    trending = await fetch_trending_from_tmdb()
-    q_lower = q.lower() if q else ""
-    g_lower = genre.lower() if genre else ""
-
-    # Filter TMDB results based on query and genre
-    tmdb_matches = []
-    for m in trending:
-        name_match = not q_lower or q_lower in m.get('name', '').lower()
-        genre_match = not g_lower or g_lower in m.get('genre', '').lower()
-
-        # If user typed a genre in the 'q' box, catch it here too
-        q_genre_match = q_lower and q_lower in m.get('genre', '').lower()
-
-        if (name_match or q_genre_match) and genre_match:
-            tmdb_matches.append(MovieResponse(**m))
-
-    if not is_unlocked:
-        return {
-            "source": "TMDB (Locked)", 
-            "results": tmdb_matches[:max_results],
-            "is_unlocked": False
-        }
-    else:
         # Search the Classic Vault (CSV)
         csv_matches = find_matches(
             query_text=q or "",
@@ -369,18 +308,13 @@ async def search_movies(
             genre=genre
         )
         csv_formatted = [MovieResponse(**m) for m in csv_matches]
-
-        # Merge: Live results first, then Vault results
+        
+        # Merge results
         seen = {(m.name, m.year) for m in tmdb_matches}
         unique_csv = [m for m in csv_formatted if (m.name, m.year) not in seen]
+        
+        return (tmdb_matches + unique_csv)[:max_results]
 
-        combined = (tmdb_matches + unique_csv)[:max_results]
-
-        return {
-            "source": "Classic Vault + Live (Unlocked)", 
-            "results": combined,
-            "is_unlocked": True
-        }
 @app.get("/api/movies/featured", response_model=FeaturedResponse)
 @limiter.limit("20/minute")
 async def get_featured_movies(request: Request):
@@ -422,7 +356,7 @@ async def get_genres(request: Request):
         return [GenreResponse(**genre) for genre in get_available_genres()]
     except Exception as e:
         logger.exception("Error getting genres")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
+        raise HTTPException(status_code=500, detail="Internal error")
 
 @app.get("/api/categories", response_model=List[CategoryResponse])
 @limiter.limit("20/minute")
@@ -431,7 +365,7 @@ async def get_categories(request: Request):
         return [CategoryResponse(**category) for category in get_available_categories()]
     except Exception as e:
         logger.exception("Error getting categories")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
+        raise HTTPException(status_code=500, detail="Internal error")
 
 @app.get("/api/favorites", response_model=List[MovieResponse])
 @limiter.limit("20/minute")
@@ -442,7 +376,7 @@ async def get_favorites(request: Request):
         return [MovieResponse(**movie) for movie in fav_movies]
     except Exception as e:
         logger.exception("Error getting favorites")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
+        raise HTTPException(status_code=500, detail="Internal error")
 
 @app.post("/api/favorites", response_model=Dict[str, str])
 @limiter.limit("5/minute")
@@ -450,12 +384,12 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
     try:
         success = add_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
-            return {"message": f"Added to favorites"}
+            return {"message": "Added to favorites"}
         else:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not found or already in favorites")
+            raise HTTPException(status_code=400, detail="Not found or already in favorites")
     except Exception as e:
         logger.exception("Error adding to favorites")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
+        raise HTTPException(status_code=500, detail="Internal error")
 
 @app.delete("/api/favorites", response_model=Dict[str, str])
 @limiter.limit("5/minute")
@@ -463,12 +397,12 @@ async def remove_from_favorites(request: Request, favorite: FavoriteRequest):
     try:
         success = remove_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
-            return {"message": f"Removed from favorites"}
+            return {"message": "Removed from favorites"}
         else:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found in favorites")
+            raise HTTPException(status_code=404, detail="Not found in favorites")
     except Exception as e:
         logger.exception("Error removing from favorites")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
+        raise HTTPException(status_code=500, detail="Internal error")
 
 @app.get("/api/health")
 @limiter.limit("60/minute")
@@ -495,11 +429,11 @@ async def get_statistics(request: Request):
         }
         if _HAS_CSV_STATS:
             csv_stats = get_csv_statistics()
-            stats["csv_data"] = csv_stats if 'error' not in csv_stats else {"error": csv_stats['error']}
+            stats["csv_data"] = csv_stats
         return stats
     except Exception as e:
         logger.exception("Error getting statistics")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
+        raise HTTPException(status_code=500, detail="Internal error")
 
 @app.get("/api/movies/{name}/{year}", response_model=MovieResponse)
 @limiter.limit("30/minute")
@@ -508,10 +442,10 @@ async def get_movie_details(request: Request, name: str, year: int):
         for movie in movies:
             if movie.get('name', '').lower() == name.lower() and movie.get('year') == year:
                 return MovieResponse(**movie)
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Movie not found")
+        raise HTTPException(status_code=404, detail="Movie not found")
     except Exception as e:
         logger.exception("Error getting movie details")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
+        raise HTTPException(status_code=500, detail="Internal error")
 
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
