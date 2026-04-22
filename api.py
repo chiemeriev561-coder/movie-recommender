@@ -7,7 +7,7 @@ import os
 import logging
 import httpx
 from contextlib import asynccontextmanager
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.responses import JSONResponse
@@ -66,6 +66,9 @@ TMDB_GENRES = {
     10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western"
 }
 
+# Engagement tracker (In-memory: tracks unique genres searched/filtered per IP)
+user_genres: Dict[str, Set[str]] = {}
+
 # Add bare domains and both http/https for common origins
 base_origins = [
     "http://localhost:3000",
@@ -78,46 +81,28 @@ base_origins = [
 ]
 env_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
 ALLOWED_ORIGINS = list(dict.fromkeys(base_origins + env_origins))
-# More robust regex for any lovable.app or lovableproject.com subdomain
-# Defaults to a broader regex if not provided
 env_regex = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip()
 ALLOWED_ORIGIN_REGEX = env_regex if env_regex else r"https?://(.*\.)?lovable(app|project)\.com|https?://(.*\.)?lovable\.app"
-
-logger.info(f"ALLOWED_ORIGINS: {ALLOWED_ORIGINS}")
-logger.info(f"ALLOWED_ORIGIN_REGEX: {ALLOWED_ORIGIN_REGEX}")
 
 FAVORITES_FILE = os.getenv("FAVORITES_FILE", "favorites.json")
 
 # Custom CORS Logging Middleware
 class CORSLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # We process preflight (OPTIONS) or actual requests
         origin = request.headers.get("origin")
-        
         response = await call_next(request)
-        
-        # Log if it was a CORS rejection (often 400 with our current Starlette version)
         if response.status_code == 400 and origin:
-             # Check if it looks like a CORS rejection
-             # Since we can't easily read response body here without complex code, 
-             # we just log that we got a 400 from an origin.
              logger.warning(f"Possible CORS rejection (400) for origin: {origin}")
-        
         return response
 
 def refresh_favorites_state() -> None:
-    """Refresh in-memory favorites from disk so all workers see current state."""
     load_favorites(FAVORITES_FILE)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle manager for the FastAPI application."""
     logger.info("Starting Movie Recommender API")
-    
-    # Load favorites from file
     load_favorites(FAVORITES_FILE)
     logger.info(f"Loaded {len(get_favorite_entries())} favorites from {FAVORITES_FILE}")
-    
     logger.info(f"API ready with {len(movies)} movies in dataset")
     yield
     logger.info("Shutting down Movie Recommender API")
@@ -159,6 +144,16 @@ class MovieResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class TrendingResponse(BaseModel):
+    movies: List[MovieResponse]
+    engagement_count: int
+    is_unlocked: bool
+    needed_to_unlock: int
+
+class SearchResponse(BaseModel):
+    source: str
+    results: List[MovieResponse]
+    is_unlocked: bool
 
 class FeaturedResponse(BaseModel):
     latest_movies: List[MovieResponse]
@@ -179,18 +174,6 @@ class GenreResponse(BaseModel):
 class CategoryResponse(BaseModel):
     category: str
     count: int
-
-class SearchFilters(BaseModel):
-    genre: Optional[str] = None
-    category: Optional[str] = None
-    min_rating: Optional[float] = Field(None, ge=0, le=10, description="Minimum rating (0-10)")
-    year: Optional[int] = Field(None, ge=1900, le=2030, description="Exact year")
-    year_from: Optional[int] = Field(None, ge=1900, le=2030, description="Year range start")
-    year_to: Optional[int] = Field(None, ge=1900, le=2030, description="Year range end")
-    sort_by: Optional[str] = Field(None, pattern="^(rating|box_office|year)$")
-
-# Engagement tracker (In-memory)
-user_engagement: Dict[str, int] = {}
 
 async def fetch_trending_from_tmdb() -> List[Dict[str, Any]]:
     """Helper to fetch trending movies from TMDB or fallback to local."""
@@ -240,45 +223,76 @@ async def root(request: Request):
         "favorites_count": len(get_favorite_entries())
     }
 
-@app.get("/api/movies/trending", response_model=List[MovieResponse])
-@limiter.limit("10/minute")
-async def get_trending_movies(request: Request):
-    """Fetch trending movies."""
-    trending = await fetch_trending_from_tmdb()
-    return [MovieResponse(**m) for m in trending]
-
-@app.get("/api/movies/all")
-@limiter.limit("30/minute")
-async def get_all_movies(request: Request):
-    """
-    Engagement-based endpoint. Unlocks local CSV 'Vault' after 5 requests.
-    """
+@app.get("/api/movies/trending", response_model=TrendingResponse)
+@limiter.limit("20/minute")
+async def get_trending_movies(request: Request, genre: Optional[str] = Query(None)):
+    """Fetch trending movies and track unique genre engagement."""
     user_ip = request.client.host if request.client else "unknown"
     
-    # Track engagement
-    current_count = user_engagement.get(user_ip, 0)
-    user_engagement[user_ip] = current_count + 1
+    if user_ip not in user_genres:
+        user_genres[user_ip] = set()
+
+    if genre:
+        user_genres[user_ip].add(genre.lower())
     
-    # Fetch Trending Data
-    trending = await fetch_trending_from_tmdb()
+    trending_data = await fetch_trending_from_tmdb()
     
-    if current_count < 5:
+    # Filter by genre if provided
+    if genre:
+        g_lower = genre.lower()
+        trending_data = [m for m in trending_data if g_lower in m['genre'].lower()]
+        
+    engagement_count = len(user_genres[user_ip])
+    is_unlocked = engagement_count >= 5
+
+    return {
+        "movies": [MovieResponse(**m) for m in trending_data],
+        "engagement_count": engagement_count,
+        "is_unlocked": is_unlocked,
+        "needed_to_unlock": max(0, 5 - engagement_count)
+    }
+
+@app.get("/api/movies/search", response_model=SearchResponse)
+@limiter.limit("30/minute")
+async def search_movies(
+    request: Request,
+    q: Optional[str] = Query(None, description="Search query"),
+    genre: Optional[str] = Query(None),
+    max_results: int = Query(30, ge=1, le=200)
+):
+    """
+    Search endpoint with conditional locking.
+    If locked (<5 unique genres explored), only searches trending TMDB data.
+    If unlocked, searches the full Classic Vault (CSV).
+    """
+    user_ip = request.client.host if request.client else "unknown"
+    engagement_count = len(user_genres.get(user_ip, set()))
+    is_unlocked = engagement_count >= 5
+    
+    if not q:
+        return {"source": "N/A", "results": [], "is_unlocked": is_unlocked}
+
+    if not is_unlocked:
+        # LOCKED: Only search through current trending results to prevent CSV leak
+        trending = await fetch_trending_from_tmdb()
+        q_lower = q.lower()
+        matches = [m for m in trending if q_lower in m.get('name', '').lower()]
         return {
-            "status": "engaged",
-            "message": f"View {5 - current_count} more trending items to unlock the Vault!",
-            "engagement_count": current_count + 1,
-            "trending": [MovieResponse(**m) for m in trending],
-            "vault": [] 
+            "source": "TMDB (Locked)", 
+            "results": [MovieResponse(**m) for m in matches],
+            "is_unlocked": False
         }
     else:
-        # The Vault: Top rated movies from your CSV/Local dataset
-        vault_movies = sorted(movies, key=lambda x: x.get("rating", 0), reverse=True)[:15]
+        # UNLOCKED: Search the full 50k+ CSV movies
+        matches = find_matches(
+            query_text=q,
+            max_results=max_results,
+            genre=genre
+        )
         return {
-            "status": "unlocked",
-            "message": "The Vault is open!",
-            "engagement_count": current_count + 1,
-            "trending": [MovieResponse(**m) for m in trending],
-            "vault": [MovieResponse(**m) for m in vault_movies]
+            "source": "Classic Vault (Unlocked)", 
+            "results": [MovieResponse(**m) for m in matches],
+            "is_unlocked": True
         }
 
 @app.get("/api/movies/featured", response_model=FeaturedResponse)
@@ -299,51 +313,12 @@ async def get_featured_movies(request: Request):
             detail="An error occurred fetching featured datasets"
         )
 
-# Movie search endpoint
-@app.get("/api/movies/search", response_model=List[MovieResponse])
-@limiter.limit("30/minute")
-async def search_movies(
-    request: Request,
-    q: Optional[str] = Query(None, description="Search query (movie name, genre, etc.)"),
-    genre: Optional[str] = Query(None, description="Filter by genre"),
-    category: Optional[str] = Query(None, description="Filter by category"),
-    min_rating: Optional[float] = Query(None, ge=0, le=10, description="Minimum rating"),
-    year: Optional[int] = Query(None, ge=1900, le=2030, description="Filter by year"),
-    year_from: Optional[int] = Query(None, ge=1900, le=2030, description="Year from"),
-    year_to: Optional[int] = Query(None, ge=1900, le=2030, description="Year to"),
-    sort_by: Optional[str] = Query(None, pattern="^(rating|box_office|year)$", description="Sort by field"),
-    fuzzy: bool = Query(True, description="Enable fuzzy matching"),
-    max_results: int = Query(30, ge=1, le=200, description="Maximum results to return")
-):
-    try:
-        matches = find_matches(
-            query_text=q or '',
-            max_results=max_results,
-            enable_fuzzy=fuzzy,
-            genre=genre,
-            category=category,
-            min_rating=min_rating,
-            year=year,
-            year_from=year_from,
-            year_to=year_to,
-            sort_by=sort_by
-        )
-        return [MovieResponse(**movie) for movie in matches]
-    except Exception as e:
-        logger.exception("Error during movie search")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while searching for movies"
-        )
-
-# Top rated movies endpoint
 @app.get("/api/movies/top", response_model=List[MovieResponse])
 @limiter.limit("20/minute")
 async def get_top_movies(
     request: Request,
-    limit: int = Query(10, ge=1, le=50, description="Number of top movies to return")
+    limit: int = Query(10, ge=1, le=50)
 ):
-    """Get top-rated movies sorted by rating."""
     try:
         top_movies = sorted(movies, key=lambda x: x.get('rating', 0), reverse=True)[:limit]
         return [MovieResponse(**movie) for movie in top_movies]
@@ -354,99 +329,64 @@ async def get_top_movies(
             detail="An error occurred while retrieving top movies"
         )
 
-# Genres endpoint
 @app.get("/api/genres", response_model=List[GenreResponse])
 @limiter.limit("20/minute")
 async def get_genres(request: Request):
-    """Get all available genres with movie counts."""
     try:
         return [GenreResponse(**genre) for genre in get_available_genres()]
     except Exception as e:
         logger.exception("Error getting genres")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while retrieving genres"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
 
-# Categories endpoint
 @app.get("/api/categories", response_model=List[CategoryResponse])
 @limiter.limit("20/minute")
 async def get_categories(request: Request):
-    """Get all available categories with movie counts."""
     try:
         return [CategoryResponse(**category) for category in get_available_categories()]
     except Exception as e:
         logger.exception("Error getting categories")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while retrieving categories"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
 
-# Favorites endpoints
 @app.get("/api/favorites", response_model=List[MovieResponse])
 @limiter.limit("20/minute")
 async def get_favorites(request: Request):
-    """Get all favorite movies with full details."""
     try:
         refresh_favorites_state()
         fav_movies = get_favorite_movies()
         return [MovieResponse(**movie) for movie in fav_movies]
     except Exception as e:
         logger.exception("Error getting favorites")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while retrieving favorites"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
 
 @app.post("/api/favorites", response_model=Dict[str, str])
 @limiter.limit("5/minute")
 async def add_to_favorites(request: Request, favorite: FavoriteRequest):
-    """Add a movie to favorites."""
     try:
         success = add_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
-            return {"message": f"Added '{favorite.name} ({favorite.year})' to favorites"}
+            return {"message": f"Added to favorites"}
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Movie not found in dataset or already in favorites"
-            )
-    except HTTPException:
-        raise
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not found or already in favorites")
     except Exception as e:
         logger.exception("Error adding to favorites")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while adding to favorites"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
 
 @app.delete("/api/favorites", response_model=Dict[str, str])
 @limiter.limit("5/minute")
 async def remove_from_favorites(request: Request, favorite: FavoriteRequest):
-    """Remove a movie from favorites."""
     try:
         success = remove_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
-            return {"message": f"Removed '{favorite.name} ({favorite.year})' from favorites"}
+            return {"message": f"Removed from favorites"}
         else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Movie not found in favorites"
-            )
-    except HTTPException:
-        raise
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found in favorites")
     except Exception as e:
         logger.exception("Error removing from favorites")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while removing from favorites"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
 
-# Health check endpoint
 @app.get("/api/health")
 @limiter.limit("60/minute")
 async def health_check(request: Request):
-    """Health check endpoint."""
     refresh_favorites_state()
     return {
         "status": "healthy",
@@ -456,11 +396,9 @@ async def health_check(request: Request):
         "tmdb_integration": bool(TMDB_API_KEY)
     }
 
-# CSV statistics endpoint
 @app.get("/api/statistics")
 @limiter.limit("20/minute")
 async def get_statistics(request: Request):
-    """Get detailed statistics about the movie dataset."""
     try:
         refresh_favorites_state()
         stats = {
@@ -471,56 +409,31 @@ async def get_statistics(request: Request):
         }
         if _HAS_CSV_STATS:
             csv_stats = get_csv_statistics()
-            if 'error' not in csv_stats:
-                stats["csv_data"] = csv_stats
-            else:
-                stats["csv_error"] = csv_stats['error']
-        else:
-            stats["csv_note"] = "CSV statistics not available"
+            stats["csv_data"] = csv_stats if 'error' not in csv_stats else {"error": csv_stats['error']}
         return stats
     except Exception as e:
         logger.exception("Error getting statistics")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while retrieving statistics"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
 
-# Movie details by name and year
 @app.get("/api/movies/{name}/{year}", response_model=MovieResponse)
 @limiter.limit("30/minute")
 async def get_movie_details(request: Request, name: str, year: int):
-    """Get detailed information about a specific movie."""
     try:
         for movie in movies:
             if movie.get('name', '').lower() == name.lower() and movie.get('year') == year:
                 return MovieResponse(**movie)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Movie '{name} ({year})' not found"
-        )
-    except HTTPException:
-        raise
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Movie not found")
     except Exception as e:
         logger.exception("Error getting movie details")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while retrieving movie details"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred")
 
-# Error handlers
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
-    return JSONResponse(
-        status_code=404,
-        content={"detail": "Resource not found"}
-    )
+    return JSONResponse(status_code=404, content={"detail": "Resource not found"})
 
 @app.exception_handler(500)
 async def internal_error_handler(request, exc):
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"}
-    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 if __name__ == "__main__":
     import uvicorn
