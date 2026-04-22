@@ -261,37 +261,64 @@ async def search_movies(
     max_results: int = Query(30, ge=1, le=200)
 ):
     """
-    Search endpoint with conditional locking.
-    If locked (<5 unique genres explored), only searches trending TMDB data.
-    If unlocked, searches the full Classic Vault (CSV).
+    Unified Search Endpoint:
+    - Tracks engagement by unique genres.
+    - Locked: Searches only live TMDB trending data (Name & Genre).
+    - Unlocked: Searches BOTH live TMDB and Classic Vault (CSV).
     """
     user_ip = request.client.host if request.client else "unknown"
+    if user_ip not in user_genres:
+        user_genres[user_ip] = set()
+    
+    # Track engagement if genre is searched
+    if genre:
+        user_genres[user_ip].add(genre.lower())
+    
     engagement_count = len(user_genres.get(user_ip, set()))
     is_unlocked = engagement_count >= 5
     
-    if not q:
-        return {"source": "N/A", "results": [], "is_unlocked": is_unlocked}
+    # Always fetch trending for "Live" results
+    trending = await fetch_trending_from_tmdb()
+    q_lower = q.lower() if q else ""
+    g_lower = genre.lower() if genre else ""
+
+    # Filter TMDB results based on query and genre
+    tmdb_matches = []
+    for m in trending:
+        name_match = not q_lower or q_lower in m.get('name', '').lower()
+        genre_match = not g_lower or g_lower in m.get('genre', '').lower()
+        
+        # If user typed a genre in the 'q' box, catch it here too
+        q_genre_match = q_lower and q_lower in m.get('genre', '').lower()
+        
+        if (name_match or q_genre_match) and genre_match:
+            tmdb_matches.append(MovieResponse(**m))
 
     if not is_unlocked:
-        # LOCKED: Only search through current trending results to prevent CSV leak
-        trending = await fetch_trending_from_tmdb()
-        q_lower = q.lower()
-        matches = [m for m in trending if q_lower in m.get('name', '').lower()]
         return {
             "source": "TMDB (Locked)", 
-            "results": [MovieResponse(**m) for m in matches],
+            "results": tmdb_matches[:max_results],
             "is_unlocked": False
         }
     else:
-        # UNLOCKED: Search the full 50k+ CSV movies
-        matches = find_matches(
-            query_text=q,
+        # Search the Classic Vault (CSV)
+        csv_matches = find_matches(
+            query_text=q or "",
             max_results=max_results,
             genre=genre
         )
+        csv_formatted = [MovieResponse(**m) for m in csv_matches]
+        
+        # Merge: Live results first, then Vault results
+        # Deduplicate by name+year
+        seen = {(m.name, m.year) for m in tmdb_matches}
+        unique_csv = [m for m in csv_formatted if (m.name, m.year) not in seen]
+        
+        combined = (tmdb_matches + unique_csv)[:max_results]
+
         return {
-            "source": "Classic Vault (Unlocked)", 
-            "results": [MovieResponse(**m) for m in matches],
+            "source": "Classic Vault + Live (Unlocked)", 
+            "results": combined,
             "is_unlocked": True
         }
 
