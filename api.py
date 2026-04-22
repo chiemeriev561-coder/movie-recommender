@@ -189,6 +189,42 @@ class SearchFilters(BaseModel):
     year_to: Optional[int] = Field(None, ge=1900, le=2030, description="Year range end")
     sort_by: Optional[str] = Field(None, pattern="^(rating|box_office|year)$")
 
+# Engagement tracker (In-memory)
+user_engagement: Dict[str, int] = {}
+
+async def fetch_trending_from_tmdb() -> List[Dict[str, Any]]:
+    """Helper to fetch trending movies from TMDB or fallback to local."""
+    if not TMDB_API_KEY:
+        return sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:20]
+
+    url = f"https://api.themoviedb.org/3/trending/movie/day?api_key={TMDB_API_KEY}"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url)
+            if response.status_code != 200:
+                raise Exception("TMDB API failed")
+            
+            data = response.json()
+            results = data.get("results", [])
+            
+            formatted = []
+            for m in results:
+                genre_ids = m.get("genre_ids", [])
+                genre_names = [TMDB_GENRES.get(gid, "Movie") for gid in genre_ids]
+                formatted.append({
+                    "name": m.get("title"),
+                    "year": int(m.get("release_date", "0000")[:4]) if m.get("release_date") else 0,
+                    "rating": round(m.get("vote_average", 0), 1),
+                    "poster_url": f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get("poster_path") else None,
+                    "genre": genre_names[0] if genre_names else "Trending",
+                    "category": "Trending",
+                    "box_office_millions": None
+                })
+            return formatted
+    except Exception as e:
+        logger.warning(f"TMDB Fetch failed: {e}")
+        return sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:20]
+
 # Root endpoint
 @app.get("/")
 @limiter.limit("60/minute")
@@ -207,51 +243,43 @@ async def root(request: Request):
 @app.get("/api/movies/trending", response_model=List[MovieResponse])
 @limiter.limit("10/minute")
 async def get_trending_movies(request: Request):
-    """
-    Fetch trending movies from TMDB API with a fallback to the local CSV dataset.
-    """
-    if not TMDB_API_KEY:
-        logger.warning("TMDB_API_KEY not found, falling back to local dataset")
-        # Fallback: return the 20 most recent movies from CSV
-        latest = sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:20]
-        return [MovieResponse(**movie) for movie in latest]
+    """Fetch trending movies."""
+    trending = await fetch_trending_from_tmdb()
+    return [MovieResponse(**m) for m in trending]
 
-    url = f"https://api.themoviedb.org/3/trending/movie/day?api_key={TMDB_API_KEY}"
+@app.get("/api/movies/all")
+@limiter.limit("30/minute")
+async def get_all_movies(request: Request):
+    """
+    Engagement-based endpoint. Unlocks local CSV 'Vault' after 5 requests.
+    """
+    user_ip = request.client.host if request.client else "unknown"
     
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(url)
-            if response.status_code != 200:
-                logger.error(f"TMDB API error: {response.status_code}")
-                raise Exception("TMDB API failed")
-                
-            data = response.json()
-            results = data.get("results", [])
-            
-            formatted_movies = []
-            for m in results:
-                # Map genre IDs to names
-                genre_ids = m.get("genre_ids", [])
-                genre_names = [TMDB_GENRES.get(gid, "Movie") for gid in genre_ids]
-                primary_genre = genre_names[0] if genre_names else "Trending"
-
-                formatted_movies.append({
-                    "name": m.get("title"),
-                    "year": int(m.get("release_date", "0000")[:4]) if m.get("release_date") else 0,
-                    "rating": round(m.get("vote_average", 0), 1),
-                    "poster_url": f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get("poster_path") else None,
-                    "genre": primary_genre,
-                    "category": "Trending",
-                    "box_office_millions": None
-                })
-            return [MovieResponse(**movie) for movie in formatted_movies]
-            
-    except Exception as e:
-        logger.warning(f"Failed to fetch from TMDB ({str(e)}), falling back to local dataset")
-        # Fallback: return the 20 most recent movies from CSV
-        latest = sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:20]
-        return [MovieResponse(**movie) for movie in latest]
-
+    # Track engagement
+    current_count = user_engagement.get(user_ip, 0)
+    user_engagement[user_ip] = current_count + 1
+    
+    # Fetch Trending Data
+    trending = await fetch_trending_from_tmdb()
+    
+    if current_count < 5:
+        return {
+            "status": "engaged",
+            "message": f"View {5 - current_count} more trending items to unlock the Vault!",
+            "engagement_count": current_count + 1,
+            "trending": [MovieResponse(**m) for m in trending],
+            "vault": [] 
+        }
+    else:
+        # The Vault: Top rated movies from your CSV/Local dataset
+        vault_movies = sorted(movies, key=lambda x: x.get("rating", 0), reverse=True)[:15]
+        return {
+            "status": "unlocked",
+            "message": "The Vault is open!",
+            "engagement_count": current_count + 1,
+            "trending": [MovieResponse(**m) for m in trending],
+            "vault": [MovieResponse(**m) for m in vault_movies]
+        }
 
 @app.get("/api/movies/featured", response_model=FeaturedResponse)
 @limiter.limit("20/minute")
