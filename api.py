@@ -175,38 +175,46 @@ class CategoryResponse(BaseModel):
     category: str
     count: int
 
-async def fetch_trending_from_tmdb() -> List[Dict[str, Any]]:
-    """Helper to fetch trending movies from TMDB or fallback to local."""
+async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
+    """Helper to fetch multiple pages of trending/popular movies from TMDB."""
     if not TMDB_API_KEY:
-        return sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:20]
+        return sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:50]
 
-    url = f"https://api.themoviedb.org/3/trending/movie/day?api_key={TMDB_API_KEY}"
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(url)
-            if response.status_code != 200:
-                raise Exception("TMDB API failed")
-            
-            data = response.json()
-            results = data.get("results", [])
-            
-            formatted = []
-            for m in results:
-                genre_ids = m.get("genre_ids", [])
-                genre_names = [TMDB_GENRES.get(gid, "Movie") for gid in genre_ids]
-                formatted.append({
-                    "name": m.get("title"),
-                    "year": int(m.get("release_date", "0000")[:4]) if m.get("release_date") else 0,
-                    "rating": round(m.get("vote_average", 0), 1),
-                    "poster_url": f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get("poster_path") else None,
-                    "genre": genre_names[0] if genre_names else "Trending",
-                    "category": "Trending",
-                    "box_office_millions": None
-                })
-            return formatted
-    except Exception as e:
-        logger.warning(f"TMDB Fetch failed: {e}")
-        return sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:20]
+    all_results = []
+    async with httpx.AsyncClient(timeout=7.0) as client:
+        # Fetch multiple pages to get a larger pool (approx 60-100 movies)
+        for page in range(1, pages + 1):
+            try:
+                # Use both trending and popular to get a diverse set
+                url = f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&page={page}"
+                response = await client.get(url)
+                if response.status_code == 200:
+                    data = response.json()
+                    all_results.extend(data.get("results", []))
+            except Exception as e:
+                logger.warning(f"Failed to fetch TMDB page {page}: {e}")
+                break
+    
+    if not all_results:
+        return sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:50]
+
+    # Deduplicate by TMDB ID
+    unique_results = {r['id']: r for r in all_results}.values()
+    
+    formatted = []
+    for m in unique_results:
+        genre_ids = m.get("genre_ids", [])
+        genre_names = [TMDB_GENRES.get(gid, "Movie") for gid in genre_ids]
+        formatted.append({
+            "name": m.get("title"),
+            "year": int(m.get("release_date", "0000")[:4]) if m.get("release_date") else 0,
+            "rating": round(m.get("vote_average", 0), 1),
+            "poster_url": f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get("poster_path") else None,
+            "genre": ", ".join(genre_names) if genre_names else "Movie",
+            "category": "Trending",
+            "box_office_millions": None
+        })
+    return formatted
 
 # Root endpoint
 @app.get("/")
