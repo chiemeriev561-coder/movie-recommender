@@ -5,6 +5,7 @@ FastAPI application exposing movie recommendation functionality as REST endpoint
 
 import os
 import logging
+import httpx
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any
 
@@ -55,7 +56,16 @@ except ImportError:
 PORT = int(os.getenv("PORT", "8000"))
 HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
-LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
+TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+
+# TMDB Genre ID to Name Mapping
+TMDB_GENRES = {
+    28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
+    99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History",
+    27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Sci-Fi",
+    10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western"
+}
+
 # Add bare domains and both http/https for common origins
 base_origins = [
     "http://localhost:3000",
@@ -111,6 +121,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"API ready with {len(movies)} movies in dataset")
     yield
     logger.info("Shutting down Movie Recommender API")
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Movie Recommender API",
@@ -126,30 +137,25 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-# Custom CORS Logging Middleware
-
- # Make sure ALLOWED_ORIGINS includes your lovable URL
-# e.g., ALLOWED_ORIGINS = ["https://cine-craft-box.lovable.app"]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_origin_regex=ALLOWED_ORIGIN_REGEX,
-    allow_credentials=True,  # Changed to True for better frontend compatibility
-    allow_methods=["*"], # Added OPTIONS for preflight
-    allow_headers=["*"], # Flexible headers are safer during development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 app.add_middleware(CORSLoggingMiddleware)
 
 # Pydantic models for request/response
 class MovieResponse(BaseModel):
     name: str
-    
     year: int
     category: str
     genre: str
-    box_office_millions: float
+    box_office_millions: Optional[float] = None
     rating: float
+    poster_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -198,6 +204,54 @@ async def root(request: Request):
         "favorites_count": len(get_favorite_entries())
     }
 
+@app.get("/api/movies/trending", response_model=List[MovieResponse])
+@limiter.limit("10/minute")
+async def get_trending_movies(request: Request):
+    """
+    Fetch trending movies from TMDB API with a fallback to the local CSV dataset.
+    """
+    if not TMDB_API_KEY:
+        logger.warning("TMDB_API_KEY not found, falling back to local dataset")
+        # Fallback: return the 20 most recent movies from CSV
+        latest = sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:20]
+        return [MovieResponse(**movie) for movie in latest]
+
+    url = f"https://api.themoviedb.org/3/trending/movie/day?api_key={TMDB_API_KEY}"
+    
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url)
+            if response.status_code != 200:
+                logger.error(f"TMDB API error: {response.status_code}")
+                raise Exception("TMDB API failed")
+                
+            data = response.json()
+            results = data.get("results", [])
+            
+            formatted_movies = []
+            for m in results:
+                # Map genre IDs to names
+                genre_ids = m.get("genre_ids", [])
+                genre_names = [TMDB_GENRES.get(gid, "Movie") for gid in genre_ids]
+                primary_genre = genre_names[0] if genre_names else "Trending"
+
+                formatted_movies.append({
+                    "name": m.get("title"),
+                    "year": int(m.get("release_date", "0000")[:4]) if m.get("release_date") else 0,
+                    "rating": round(m.get("vote_average", 0), 1),
+                    "poster_url": f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get("poster_path") else None,
+                    "genre": primary_genre,
+                    "category": "Trending",
+                    "box_office_millions": None
+                })
+            return [MovieResponse(**movie) for movie in formatted_movies]
+            
+    except Exception as e:
+        logger.warning(f"Failed to fetch from TMDB ({str(e)}), falling back to local dataset")
+        # Fallback: return the 20 most recent movies from CSV
+        latest = sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:20]
+        return [MovieResponse(**movie) for movie in latest]
+
 
 @app.get("/api/movies/featured", response_model=FeaturedResponse)
 @limiter.limit("20/minute")
@@ -233,20 +287,6 @@ async def search_movies(
     fuzzy: bool = Query(True, description="Enable fuzzy matching"),
     max_results: int = Query(30, ge=1, le=200, description="Maximum results to return")
 ):
-    """
-    Search for movies with optional filters and sorting.
-    
-    - **q**: Search query (movie name, genre, category)
-    - **genre**: Filter by genre (substring match)
-    - **category**: Filter by category (substring match)
-    - **min_rating**: Minimum rating filter (0-10)
-    - **year**: Filter by exact year
-    - **year_from**: Filter movies from this year onwards
-    - **year_to**: Filter movies up to this year
-    - **sort_by**: Sort results by 'rating', 'box_office', or 'year'
-    - **fuzzy**: Enable fuzzy string matching
-    - **max_results**: Maximum number of results to return (1-200)
-    """
     try:
         matches = find_matches(
             query_text=q or '',
@@ -260,9 +300,7 @@ async def search_movies(
             year_to=year_to,
             sort_by=sort_by
         )
-        
         return [MovieResponse(**movie) for movie in matches]
-        
     except Exception as e:
         logger.exception("Error during movie search")
         raise HTTPException(
@@ -337,7 +375,6 @@ async def get_favorites(request: Request):
 async def add_to_favorites(request: Request, favorite: FavoriteRequest):
     """Add a movie to favorites."""
     try:
-        # Use configurable favorites file
         success = add_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
             return {"message": f"Added '{favorite.name} ({favorite.year})' to favorites"}
@@ -360,7 +397,6 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
 async def remove_from_favorites(request: Request, favorite: FavoriteRequest):
     """Remove a movie from favorites."""
     try:
-        # Use configurable favorites file
         success = remove_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
             return {"message": f"Removed '{favorite.name} ({favorite.year})' from favorites"}
@@ -388,7 +424,8 @@ async def health_check(request: Request):
         "status": "healthy",
         "movies_count": len(movies),
         "favorites_count": len(get_favorite_entries()),
-        "csv_integration": _HAS_CSV_STATS
+        "csv_integration": _HAS_CSV_STATS,
+        "tmdb_integration": bool(TMDB_API_KEY)
     }
 
 # CSV statistics endpoint
@@ -404,8 +441,6 @@ async def get_statistics(request: Request):
             "available_genres": len(get_available_genres()),
             "available_categories": len(get_available_categories())
         }
-        
-        # Add CSV statistics if available
         if _HAS_CSV_STATS:
             csv_stats = get_csv_statistics()
             if 'error' not in csv_stats:
@@ -414,9 +449,7 @@ async def get_statistics(request: Request):
                 stats["csv_error"] = csv_stats['error']
         else:
             stats["csv_note"] = "CSV statistics not available"
-        
         return stats
-        
     except Exception as e:
         logger.exception("Error getting statistics")
         raise HTTPException(
@@ -433,7 +466,6 @@ async def get_movie_details(request: Request, name: str, year: int):
         for movie in movies:
             if movie.get('name', '').lower() == name.lower() and movie.get('year') == year:
                 return MovieResponse(**movie)
-        
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Movie '{name} ({year})' not found"

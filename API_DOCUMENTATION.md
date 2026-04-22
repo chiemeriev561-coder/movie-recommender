@@ -93,7 +93,31 @@ curl "http://localhost:8000/api/movies/search?min_rating=8.0"
 curl "http://localhost:8000/api/movies/search?year=2021&sort_by=box_office"
 ```
 
-### 3. Top Rated Movies
+### 3. Trending Movies
+
+```
+GET /api/movies/trending
+```
+
+Fetch trending movies from TMDB API with a fallback to the local CSV dataset.
+
+**Response:**
+
+```json
+[
+  {
+    "name": "Dune: Part Two",
+    "year": 2024,
+    "category": "Trending",
+    "genre": "Sci-Fi",
+    "box_office_millions": null,
+    "rating": 8.3,
+    "poster_url": "https://image.tmdb.org/t/p/w500/8b8R8Pbd9uYvvw907XvUznv9v.jpg"
+  }
+]
+```
+
+### 4. Top Rated Movies
 
 ```
 GET /api/movies/top?limit=10
