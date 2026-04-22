@@ -277,14 +277,22 @@ async def search_movies(
     user_ip = request.client.host if request.client else "unknown"
     if user_ip not in user_genres:
         user_genres[user_ip] = set()
-    
+
     # Track engagement if genre is searched
     if genre:
         user_genres[user_ip].add(genre.lower())
-    
+
     engagement_count = len(user_genres.get(user_ip, set()))
     is_unlocked = engagement_count >= 5
-    
+
+    # If no query and no genre, return empty results early
+    if not q and not genre:
+        return {
+            "source": "N/A", 
+            "results": [],
+            "is_unlocked": is_unlocked
+        }
+
     # Always fetch trending for "Live" results
     trending = await fetch_trending_from_tmdb()
     q_lower = q.lower() if q else ""
@@ -295,10 +303,10 @@ async def search_movies(
     for m in trending:
         name_match = not q_lower or q_lower in m.get('name', '').lower()
         genre_match = not g_lower or g_lower in m.get('genre', '').lower()
-        
+
         # If user typed a genre in the 'q' box, catch it here too
         q_genre_match = q_lower and q_lower in m.get('genre', '').lower()
-        
+
         if (name_match or q_genre_match) and genre_match:
             tmdb_matches.append(MovieResponse(**m))
 
@@ -316,12 +324,11 @@ async def search_movies(
             genre=genre
         )
         csv_formatted = [MovieResponse(**m) for m in csv_matches]
-        
+
         # Merge: Live results first, then Vault results
-        # Deduplicate by name+year
         seen = {(m.name, m.year) for m in tmdb_matches}
         unique_csv = [m for m in csv_formatted if (m.name, m.year) not in seen]
-        
+
         combined = (tmdb_matches + unique_csv)[:max_results]
 
         return {
@@ -329,7 +336,6 @@ async def search_movies(
             "results": combined,
             "is_unlocked": True
         }
-
 @app.get("/api/movies/featured", response_model=FeaturedResponse)
 @limiter.limit("20/minute")
 async def get_featured_movies(request: Request):
