@@ -4,6 +4,8 @@
 
 This REST API provides movie recommendation functionality including search, filtering, favorites management, and more. The API is built with FastAPI and includes automatic interactive documentation.
 
+If `TMDB_API_KEY` is configured, TMDB-backed endpoints can include movie IDs, posters, and trailer lookup data.
+
 ## Quick Start
 
 1. **Activate virtual environment:**
@@ -106,6 +108,7 @@ Fetch trending movies from TMDB API with a fallback to the local CSV dataset.
 ```json
 [
   {
+    "id": 693134,
     "name": "Dune: Part Two",
     "year": 2024,
     "category": "Trending",
@@ -117,7 +120,41 @@ Fetch trending movies from TMDB API with a fallback to the local CSV dataset.
 ]
 ```
 
-### 4. Top Rated Movies
+### 4. Movie Trailer
+
+```
+GET /api/movies/{movie_id}/trailer
+```
+
+Fetch the best available YouTube trailer for a TMDB movie ID.
+
+This endpoint prefers:
+
+- Official YouTube trailers
+- Other YouTube trailers
+- Other YouTube videos
+
+**Example:**
+
+```bash
+curl "http://localhost:8000/api/movies/550/trailer"
+```
+
+**Response:**
+
+```json
+{
+  "youtube_key": "SUXWAEX2jlg"
+}
+```
+
+**Common errors:**
+
+- `404 Not Found`: movie does not exist on TMDB or no YouTube trailer was found
+- `503 Service Unavailable`: `TMDB_API_KEY` is not configured
+- `502 Bad Gateway`: TMDB request failed
+
+### 5. Top Rated Movies
 
 ```
 GET /api/movies/top?limit=10
@@ -129,7 +166,7 @@ Get top-rated movies sorted by rating.
 
 - `limit`: Number of movies to return (1-50, default: 10)
 
-### 4. Genres
+### 6. Genres
 
 ```
 GET /api/genres
@@ -147,7 +184,7 @@ Get all available genres with movie counts.
 ]
 ```
 
-### 5. Categories
+### 7. Categories
 
 ```
 GET /api/categories
@@ -155,7 +192,7 @@ GET /api/categories
 
 Get all available categories with movie counts.
 
-### 6. Favorites Management
+### 8. Favorites Management
 
 #### Get Favorites
 
@@ -199,7 +236,7 @@ Remove a movie from favorites.
 }
 ```
 
-### 7. Movie Details
+### 9. Movie Details
 
 ```
 GET /api/movies/{name}/{year}
@@ -213,7 +250,7 @@ Get detailed information about a specific movie.
 curl "http://localhost:8000/api/movies/Inception/2010"
 ```
 
-### 8. Health Check
+### 10. Health Check
 
 ```
 GET /api/health
@@ -221,7 +258,7 @@ GET /api/health
 
 Check API health and get basic statistics.
 
-### 9. Statistics
+### 11. Statistics
 
 ```
 GET /api/statistics
@@ -235,12 +272,24 @@ Get detailed statistics about movie dataset.
 
 ```json
 {
+  "id": 550,
   "name": "Inception",
   "year": 2010,
   "category": "Prestige",
   "genre": "Sci-Fi",
   "box_office_millions": 829.9,
-  "rating": 8.8
+  "rating": 8.8,
+  "poster_url": "https://image.tmdb.org/t/p/w500/example.jpg"
+}
+```
+
+`id` is optional and is populated for TMDB-backed results such as `/api/movies/trending` and TMDB search matches.
+
+### Trailer Response
+
+```json
+{
+  "youtube_key": "SUXWAEX2jlg"
 }
 ```
 

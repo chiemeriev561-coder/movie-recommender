@@ -134,6 +134,7 @@ app.add_middleware(CORSLoggingMiddleware)
 
 # Pydantic models for request/response
 class MovieResponse(BaseModel):
+    id: Optional[int] = None
     name: str
     year: int
     category: str
@@ -158,6 +159,9 @@ class SearchResponse(BaseModel):
 class FeaturedResponse(BaseModel):
     latest_movies: List[MovieResponse]
     old_movies: List[MovieResponse]
+
+class TrailerResponse(BaseModel):
+    youtube_key: str
 
 class FavoriteRequest(BaseModel):
     name: str
@@ -206,6 +210,7 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
         genre_ids = m.get("genre_ids", [])
         genre_names = [TMDB_GENRES.get(gid, "Movie") for gid in genre_ids]
         formatted.append({
+            "id": m.get("id"),
             "name": m.get("title"),
             "year": int(m.get("release_date", "0000")[:4]) if m.get("release_date") else 0,
             "rating": round(m.get("vote_average", 0), 1),
@@ -215,6 +220,34 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
             "box_office_millions": None
         })
     return formatted
+
+def select_tmdb_trailer(videos: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Pick the best available YouTube trailer from a TMDB video list."""
+    youtube_videos = [
+        video for video in videos
+        if video.get("site") == "YouTube" and video.get("key")
+    ]
+    if not youtube_videos:
+        return None
+
+    official_trailer = next(
+        (
+            video for video in youtube_videos
+            if video.get("type") == "Trailer" and video.get("official") is True
+        ),
+        None,
+    )
+    if official_trailer:
+        return official_trailer
+
+    trailer = next(
+        (video for video in youtube_videos if video.get("type") == "Trailer"),
+        None,
+    )
+    if trailer:
+        return trailer
+
+    return youtube_videos[0]
 
 # Root endpoint
 @app.get("/")
@@ -349,6 +382,56 @@ async def get_top_movies(
             detail="An error occurred while retrieving top movies"
         )
 
+@app.get("/api/movies/{movie_id}/trailer", response_model=TrailerResponse)
+@limiter.limit("20/minute")
+async def get_movie_trailer(request: Request, movie_id: int):
+    if not TMDB_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TMDB integration is not configured"
+        )
+
+    url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
+
+    try:
+        async with httpx.AsyncClient(timeout=7.0) as client:
+            response = await client.get(url, params={"api_key": TMDB_API_KEY})
+    except httpx.RequestError:
+        logger.exception("Failed to reach TMDB trailer endpoint for movie_id=%s", movie_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch trailer from TMDB"
+        )
+
+    if response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Movie not found on TMDB")
+
+    if response.status_code != status.HTTP_200_OK:
+        logger.warning(
+            "TMDB trailer lookup failed for movie_id=%s with status=%s",
+            movie_id,
+            response.status_code,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch trailer from TMDB"
+        )
+
+    try:
+        videos = response.json().get("results", [])
+    except ValueError:
+        logger.warning("TMDB returned invalid JSON for movie_id=%s trailer lookup", movie_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Invalid trailer response from TMDB"
+        )
+
+    trailer = select_tmdb_trailer(videos)
+    if not trailer:
+        raise HTTPException(status_code=404, detail="No YouTube trailer found")
+
+    return TrailerResponse(youtube_key=trailer["key"])
+
 @app.get("/api/genres", response_model=List[GenreResponse])
 @limiter.limit("20/minute")
 async def get_genres(request: Request):
@@ -443,6 +526,8 @@ async def get_movie_details(request: Request, name: str, year: int):
             if movie.get('name', '').lower() == name.lower() and movie.get('year') == year:
                 return MovieResponse(**movie)
         raise HTTPException(status_code=404, detail="Movie not found")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error getting movie details")
         raise HTTPException(status_code=500, detail="Internal error")
