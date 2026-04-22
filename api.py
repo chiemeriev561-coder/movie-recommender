@@ -231,7 +231,7 @@ async def root(request: Request):
         "favorites_count": len(get_favorite_entries())
     }
 
-@app.get("/api/movies/trending", response_model=TrendingResponse)
+@app.get("/api/movies/trending")
 @limiter.limit("20/minute")
 async def get_trending_movies(request: Request, genre: Optional[str] = Query(None)):
     """Fetch trending movies. Returns 10 by default, or filtered results."""
@@ -256,14 +256,15 @@ async def get_trending_movies(request: Request, genre: Optional[str] = Query(Non
     engagement_count = len(user_genres[user_ip])
     is_unlocked = engagement_count >= 5
 
-    return {
-        "movies": [MovieResponse(**m) for m in trending_data],
-        "engagement_count": engagement_count,
-        "is_unlocked": is_unlocked,
-        "needed_to_unlock": max(0, 5 - engagement_count)
-    }
+    # Determine if we should return the new object or just the list for the frontend
+    # If the frontend hasn't been updated, we return just the list
+    results = [MovieResponse(**m) for m in trending_data]
+    
+    # Check if client explicitly asks for engagement info via header or if we just want to be safe
+    # For now, let's return a list by default to ensure the frontend doesn't break
+    return results
 
-@app.get("/api/movies/search", response_model=SearchResponse)
+@app.get("/api/movies/search")
 @limiter.limit("30/minute")
 async def search_movies(
     request: Request,
@@ -271,6 +272,47 @@ async def search_movies(
     genre: Optional[str] = Query(None),
     max_results: int = Query(60, ge=1, le=200)
 ):
+    """
+    Unified Search Endpoint:
+    - Locked: Searches only live TMDB trending data (Name & Genre).
+    - Unlocked: Searches BOTH live TMDB and Classic Vault (CSV).
+    """
+    user_ip = request.client.host if request.client else "unknown"
+    if user_ip not in user_genres:
+        user_genres[user_ip] = set()
+    
+    if genre:
+        user_genres[user_ip].add(genre.lower())
+    
+    engagement_count = len(user_genres.get(user_ip, set()))
+    is_unlocked = engagement_count >= 5
+    
+    if not q and not genre:
+        return []
+
+    trending = await fetch_trending_from_tmdb()
+    q_lower = q.lower() if q else ""
+    g_lower = genre.lower() if genre else ""
+
+    tmdb_matches = []
+    for m in trending:
+        name_match = not q_lower or q_lower in m.get('name', '').lower()
+        genre_match = not g_lower or g_lower in m.get('genre', '').lower()
+        q_genre_match = q_lower and q_lower in m.get('genre', '').lower()
+        
+        if (name_match or q_genre_match) and genre_match:
+            tmdb_matches.append(MovieResponse(**m))
+
+    if not is_unlocked:
+        return tmdb_matches[:max_results]
+    else:
+        csv_matches = find_matches(query_text=q or "", max_results=max_results, genre=genre)
+        csv_formatted = [MovieResponse(**m) for m in csv_matches]
+        
+        seen = {(m.name, m.year) for m in tmdb_matches}
+        unique_csv = [m for m in csv_formatted if (m.name, m.year) not in seen]
+        
+        return (tmdb_matches + unique_csv)[:max_results]
     """
     Unified Search Endpoint:
     - Tracks engagement by unique genres.
