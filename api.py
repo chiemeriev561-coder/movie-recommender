@@ -234,7 +234,7 @@ async def root(request: Request):
 @app.get("/api/movies/trending", response_model=TrendingResponse)
 @limiter.limit("20/minute")
 async def get_trending_movies(request: Request, genre: Optional[str] = Query(None)):
-    """Fetch trending movies and track unique genre engagement."""
+    """Fetch trending movies. Returns 10 by default, or filtered results."""
     user_ip = request.client.host if request.client else "unknown"
     
     if user_ip not in user_genres:
@@ -249,6 +249,9 @@ async def get_trending_movies(request: Request, genre: Optional[str] = Query(Non
     if genre:
         g_lower = genre.lower()
         trending_data = [m for m in trending_data if g_lower in m['genre'].lower()]
+    else:
+        # Initial view: show only top 10
+        trending_data = trending_data[:10]
         
     engagement_count = len(user_genres[user_ip])
     is_unlocked = engagement_count >= 5
@@ -266,7 +269,7 @@ async def search_movies(
     request: Request,
     q: Optional[str] = Query(None, description="Search query"),
     genre: Optional[str] = Query(None),
-    max_results: int = Query(30, ge=1, le=200)
+    max_results: int = Query(60, ge=1, le=200)
 ):
     """
     Unified Search Endpoint:
