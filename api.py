@@ -163,6 +163,16 @@ class FeaturedResponse(BaseModel):
 class TrailerResponse(BaseModel):
     youtube_key: str
 
+class RecommendationResponse(BaseModel):
+    movie: MovieResponse
+    similarity_score: float
+    match_reason: str
+
+class RecommendationsResponse(BaseModel):
+    recommendations: List[RecommendationResponse]
+    based_on: Dict[str, Any]
+    total_available: int
+
 class FavoriteRequest(BaseModel):
     name: str
     year: int
@@ -248,6 +258,251 @@ def select_tmdb_trailer(videos: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
         return trailer
 
     return youtube_videos[0]
+
+# User preference tracking for content-based recommendations
+user_preferences: Dict[str, Dict[str, Any]] = {}
+
+def get_user_preferences(user_ip: str) -> Dict[str, Any]:
+    """Get or initialize user preferences for content-based filtering."""
+    if user_ip not in user_preferences:
+        user_preferences[user_ip] = {
+            "viewed_movies": set(),  # (name, year) tuples
+            "liked_genres": set(),
+            "liked_categories": set(),
+            "rating_preference": 7.0,  # Default preference
+            "year_range": {"min": 1980, "max": 2024},
+            "favorite_movies": [],  # List of movie dicts
+        }
+    return user_preferences[user_ip]
+
+def calculate_content_similarity(
+    movie: Dict[str, Any],
+    user_prefs: Dict[str, Any]
+) -> tuple[float, str]:
+    """
+    Calculate content-based similarity score between a movie and user preferences.
+    Returns (score, reason) tuple.
+    """
+    score = 0.0
+    reasons = []
+    
+    # Genre similarity (0-40 points)
+    movie_genres = set()
+    if movie.get("genre"):
+        movie_genres.update(g.strip().lower() for g in movie["genre"].split("/"))
+    if movie.get("all_genres"):
+        movie_genres.update(g.strip().lower() for g in movie.get("all_genres", []))
+    
+    liked_genres = user_prefs.get("liked_genres", set())
+    if liked_genres and movie_genres:
+        genre_overlap = len(movie_genres & liked_genres)
+        genre_score = min(genre_overlap * 15, 40)
+        if genre_score > 0:
+            score += genre_score
+            top_genre = list(movie_genres & liked_genres)[0].title() if (movie_genres & liked_genres) else ""
+            reasons.append(f"Matches your taste in {top_genre}")
+    
+    # Category similarity (0-20 points)
+    movie_category = movie.get("category", "").lower()
+    liked_categories = user_prefs.get("liked_categories", set())
+    if liked_categories and movie_category in liked_categories:
+        score += 20
+        reasons.append(f"{movie.get('category', 'Similar')} film")
+    
+    # Rating alignment (0-20 points)
+    movie_rating = movie.get("rating", 0)
+    preferred_rating = user_prefs.get("rating_preference", 7.0)
+    if movie_rating > 0:
+        rating_diff = abs(movie_rating - preferred_rating)
+        if rating_diff < 1.0:
+            score += 20
+            reasons.append("Highly rated")
+        elif rating_diff < 2.0:
+            score += 10
+    
+    # Year/decade alignment (0-15 points)
+    movie_year = movie.get("year", 2000)
+    year_range = user_prefs.get("year_range", {"min": 1980, "max": 2024})
+    if year_range["min"] <= movie_year <= year_range["max"]:
+        score += 15
+    elif abs(movie_year - (year_range["min"] + year_range["max"]) // 2) < 15:
+        score += 8
+    
+    # Box office bonus (0-5 points) - popularity signal
+    box_office = movie.get("box_office_millions", 0) or 0
+    if box_office > 500:
+        score += 5
+        if not any("rated" in r for r in reasons):
+            reasons.append("Popular hit")
+    elif box_office > 100:
+        score += 2
+    
+    # Normalize score to 0-100
+    final_score = min(round(score), 100)
+    
+    # Build concise match reason
+    if reasons:
+        match_reason = reasons[0]
+        if len(reasons) > 1:
+            match_reason += f" • {reasons[1]}"
+    else:
+        match_reason = "Recommended for you"
+    
+    return final_score, match_reason
+
+def update_user_preferences_from_favorites(user_ip: str) -> None:
+    """Update user preferences based on their favorite movies."""
+    prefs = get_user_preferences(user_ip)
+    fav_movies = get_favorite_movies()
+    prefs["favorite_movies"] = fav_movies
+    
+    if not fav_movies:
+        return
+    
+    # Extract genres from favorites
+    all_genres = set()
+    all_categories = set()
+    ratings = []
+    years = []
+    
+    for movie in fav_movies:
+        # Genres
+        if movie.get("genre"):
+            all_genres.update(g.strip().lower() for g in movie["genre"].split("/"))
+        if movie.get("all_genres"):
+            all_genres.update(g.strip().lower() for g in movie.get("all_genres", []))
+        
+        # Categories
+        if movie.get("category"):
+            all_categories.add(movie["category"].lower())
+        
+        # Ratings and years for averaging
+        if movie.get("rating"):
+            ratings.append(movie["rating"])
+        if movie.get("year"):
+            years.append(movie["year"])
+        
+        # Track viewed movies
+        prefs["viewed_movies"].add((movie.get("name"), movie.get("year")))
+    
+    prefs["liked_genres"] = all_genres
+    prefs["liked_categories"] = all_categories
+    
+    if ratings:
+        prefs["rating_preference"] = sum(ratings) / len(ratings)
+    
+    if years:
+        avg_year = sum(years) / len(years)
+        prefs["year_range"] = {
+            "min": int(avg_year - 20),
+            "max": int(avg_year + 10)
+        }
+
+def get_content_recommendations(
+    user_ip: str,
+    limit: int = 10,
+    exclude_viewed: bool = True
+) -> List[Dict[str, Any]]:
+    """Generate content-based recommendations for a user."""
+    prefs = get_user_preferences(user_ip)
+    
+    # Refresh from favorites
+    update_user_preferences_from_favorites(user_ip)
+    
+    # Get candidate movies (combine local and TMDB if available)
+    candidates = movies.copy()
+    
+    scored_movies = []
+    for movie in candidates:
+        # Skip already viewed movies if requested
+        if exclude_viewed:
+            movie_key = (movie.get("name"), movie.get("year"))
+            if movie_key in prefs["viewed_movies"]:
+                continue
+        
+        score, reason = calculate_content_similarity(movie, prefs)
+        if score > 0:
+            scored_movies.append({
+                "movie": movie,
+                "score": score,
+                "reason": reason
+            })
+    
+    # Sort by score descending
+    scored_movies.sort(key=lambda x: x["score"], reverse=True)
+    
+    return scored_movies[:limit]
+
+def get_similar_movies(
+    target_movie: Dict[str, Any],
+    limit: int = 8,
+    exclude_same: bool = True
+) -> List[Dict[str, Any]]:
+    """Find movies similar to a target movie based on content features."""
+    target_genres = set()
+    if target_movie.get("genre"):
+        target_genres.update(g.strip().lower() for g in target_movie["genre"].split("/"))
+    if target_movie.get("all_genres"):
+        target_genres.update(g.strip().lower() for g in target_movie.get("all_genres", []))
+    
+    target_category = target_movie.get("category", "").lower()
+    target_year = target_movie.get("year", 2000)
+    target_rating = target_movie.get("rating", 0)
+    
+    scored = []
+    for movie in movies:
+        # Skip the same movie
+        if exclude_same:
+            if (movie.get("name") == target_movie.get("name") and 
+                movie.get("year") == target_year):
+                continue
+        
+        score = 0
+        reasons = []
+        
+        # Genre overlap (most important)
+        movie_genres = set()
+        if movie.get("genre"):
+            movie_genres.update(g.strip().lower() for g in movie["genre"].split("/"))
+        if movie.get("all_genres"):
+            movie_genres.update(g.strip().lower() for g in movie.get("all_genres", []))
+        
+        genre_overlap = len(target_genres & movie_genres)
+        if genre_overlap > 0:
+            score += genre_overlap * 25
+            common = list(target_genres & movie_genres)[0].title()
+            reasons.append(f"{common}")
+        
+        # Same category
+        if movie.get("category", "").lower() == target_category:
+            score += 20
+            reasons.append(f"{target_movie.get('category', 'Same category')}")
+        
+        # Year proximity
+        year_diff = abs(movie.get("year", 2000) - target_year)
+        if year_diff <= 5:
+            score += 15
+        elif year_diff <= 10:
+            score += 8
+        
+        # Rating proximity
+        rating_diff = abs(movie.get("rating", 0) - target_rating)
+        if rating_diff < 1.0:
+            score += 15
+            reasons.append("Similar rating")
+        elif rating_diff < 2.0:
+            score += 8
+        
+        if score > 10:  # Minimum threshold
+            reason_str = f"Because you liked {target_movie.get('name')} • {', '.join(reasons[:2])}"
+            scored.append({
+                "movie": movie,
+                "score": min(score, 100),
+                "reason": reason_str
+            })
+    
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored[:limit]
 
 # Root endpoint
 @app.get("/")
@@ -467,6 +722,9 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
     try:
         success = add_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
+            # Update user preferences for better recommendations
+            user_ip = request.client.host if request.client else "unknown"
+            update_user_preferences_from_favorites(user_ip)
             return {"message": "Added to favorites"}
         else:
             raise HTTPException(status_code=400, detail="Not found or already in favorites")
@@ -530,6 +788,212 @@ async def get_movie_details(request: Request, name: str, year: int):
         raise
     except Exception as e:
         logger.exception("Error getting movie details")
+        raise HTTPException(status_code=500, detail="Internal error")
+
+@app.get("/api/movies/{name}/{year}/similar", response_model=RecommendationsResponse)
+@limiter.limit("30/minute")
+async def get_similar_movies_endpoint(
+    request: Request,
+    name: str,
+    year: int,
+    limit: int = Query(8, ge=1, le=20)
+):
+    """
+    Get movies similar to a specific movie based on content features.
+    Uses genre overlap, category, year proximity, and rating similarity.
+    """
+    try:
+        # Find the target movie
+        target_movie = None
+        for movie in movies:
+            if movie.get('name', '').lower() == name.lower() and movie.get('year') == year:
+                target_movie = movie
+                break
+        
+        if not target_movie:
+            raise HTTPException(status_code=404, detail="Movie not found")
+        
+        # Get similar movies
+        similar = get_similar_movies(target_movie, limit=limit)
+        
+        recommendations = [
+            RecommendationResponse(
+                movie=MovieResponse(**item["movie"]),
+                similarity_score=item["score"],
+                match_reason=item["reason"]
+            )
+            for item in similar
+        ]
+        
+        return RecommendationsResponse(
+            recommendations=recommendations,
+            based_on={
+                "movie": target_movie.get("name"),
+                "year": target_movie.get("year"),
+                "genre": target_movie.get("genre"),
+                "category": target_movie.get("category")
+            },
+            total_available=len(similar)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error getting similar movies")
+        raise HTTPException(status_code=500, detail="Internal error")
+
+@app.get("/api/recommendations", response_model=RecommendationsResponse)
+@limiter.limit("30/minute")
+async def get_personalized_recommendations(
+    request: Request,
+    limit: int = Query(10, ge=1, le=50),
+    include_viewed: bool = Query(False, description="Include movies user has already favorited")
+):
+    """
+    Get personalized movie recommendations based on content-based filtering.
+    
+    Analyzes user's favorite movies and search history to recommend similar content.
+    Factors considered:
+    - Genre preferences from favorites and searches
+    - Category alignment (Blockbuster, Indie, Classic, etc.)
+    - Rating preferences
+    - Year/decade preferences
+    - Popularity signals
+    """
+    user_ip = request.client.host if request.client else "unknown"
+    
+    try:
+        # Update preferences from search history
+        prefs = get_user_preferences(user_ip)
+        if user_ip in user_genres:
+            prefs["liked_genres"].update(user_genres[user_ip])
+        
+        # Get recommendations
+        scored_movies = get_content_recommendations(
+            user_ip=user_ip,
+            limit=limit,
+            exclude_viewed=not include_viewed
+        )
+        
+        recommendations = [
+            RecommendationResponse(
+                movie=MovieResponse(**item["movie"]),
+                similarity_score=item["score"],
+                match_reason=item["reason"]
+            )
+            for item in scored_movies
+        ]
+        
+        # Build "based_on" info for transparency
+        based_on = {
+            "liked_genres": list(prefs.get("liked_genres", set()))[:5],
+            "liked_categories": list(prefs.get("liked_categories", set()))[:3],
+            "preferred_rating": round(prefs.get("rating_preference", 7.0), 1),
+            "year_range": prefs.get("year_range", {"min": 1980, "max": 2024}),
+            "favorites_count": len(prefs.get("favorite_movies", []))
+        }
+        
+        return RecommendationsResponse(
+            recommendations=recommendations,
+            based_on=based_on,
+            total_available=len(recommendations)
+        )
+        
+    except Exception as e:
+        logger.exception("Error generating recommendations")
+        raise HTTPException(status_code=500, detail="Internal error")
+
+@app.get("/api/recommendations/discovery", response_model=RecommendationsResponse)
+@limiter.limit("20/minute")
+async def get_discovery_recommendations(
+    request: Request,
+    limit: int = Query(10, ge=1, le=30)
+):
+    """
+    Get "Discovery" recommendations - movies outside usual preferences but highly rated.
+    Surprises the user with hidden gems they might not have found otherwise.
+    """
+    user_ip = request.client.host if request.client else "unknown"
+    
+    try:
+        prefs = get_user_preferences(user_ip)
+        liked_genres = prefs.get("liked_genres", set())
+        
+        candidates = []
+        for movie in movies:
+            movie_key = (movie.get("name"), movie.get("year"))
+            if movie_key in prefs.get("viewed_movies", set()):
+                continue
+            
+            # Look for movies with different genres but high ratings
+            movie_genres = set()
+            if movie.get("genre"):
+                movie_genres.update(g.strip().lower() for g in movie["genre"].split("/"))
+            
+            # Score based on discovery potential
+            score = 0
+            reasons = []
+            
+            # High rating is key for discovery
+            rating = movie.get("rating", 0)
+            if rating >= 8.0:
+                score += 40
+                reasons.append("Critically acclaimed")
+            elif rating >= 7.5:
+                score += 25
+            
+            # Slight genre overlap (not too similar, not too different)
+            overlap = len(movie_genres & liked_genres) if liked_genres else 0
+            if liked_genres:
+                if overlap == 1:  # One genre in common
+                    score += 20
+                elif overlap == 0:  # Completely different
+                    score += 10
+                    reasons.append("New genre for you")
+            
+            # Underrated factor (high rating, lower box office)
+            box_office = movie.get("box_office_millions", 0) or 0
+            if rating >= 7.5 and box_office < 50:
+                score += 20
+                reasons.append("Hidden gem")
+            
+            # Older classics the user might have missed
+            year = movie.get("year", 2000)
+            if year < 1990 and rating >= 8.0:
+                score += 15
+                reasons.append("Classic")
+            
+            if score >= 35:
+                reason_str = reasons[0] if reasons else "Discovery pick"
+                if len(reasons) > 1:
+                    reason_str += f" • {reasons[1]}"
+                
+                candidates.append({
+                    "movie": movie,
+                    "score": min(score, 100),
+                    "reason": reason_str
+                })
+        
+        # Sort by discovery score and shuffle slightly for variety
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        
+        recommendations = [
+            RecommendationResponse(
+                movie=MovieResponse(**item["movie"]),
+                similarity_score=item["score"],
+                match_reason=item["reason"]
+            )
+            for item in candidates[:limit]
+        ]
+        
+        return RecommendationsResponse(
+            recommendations=recommendations,
+            based_on={"mode": "discovery", "focus": "hidden gems and acclaimed films"},
+            total_available=len(recommendations)
+        )
+        
+    except Exception as e:
+        logger.exception("Error generating discovery recommendations")
         raise HTTPException(status_code=500, detail="Internal error")
 
 @app.exception_handler(404)
