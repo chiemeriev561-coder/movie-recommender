@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any, Set
 
 from fastapi import FastAPI, HTTPException, Query, status
+from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -261,6 +262,7 @@ def select_tmdb_trailer(videos: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
 
 # User preference tracking for content-based recommendations
 user_preferences: Dict[str, Dict[str, Any]] = {}
+user_favorite_keys: Dict[str, Set[tuple[str, int]]] = {}
 
 def get_user_preferences(user_ip: str) -> Dict[str, Any]:
     """Get or initialize user preferences for content-based filtering."""
@@ -274,6 +276,23 @@ def get_user_preferences(user_ip: str) -> Dict[str, Any]:
             "favorite_movies": [],  # List of movie dicts
         }
     return user_preferences[user_ip]
+
+
+def get_user_favorite_movies(user_ip: str) -> List[Dict[str, Any]]:
+    """Return favorite movie records associated with a specific user."""
+    favorite_keys = user_favorite_keys.get(user_ip, set())
+    if not favorite_keys:
+        return []
+
+    movie_lookup = {
+        (movie.get("name"), movie.get("year")): movie
+        for movie in movies
+    }
+    return [
+        movie_lookup[key]
+        for key in favorite_keys
+        if key in movie_lookup
+    ]
 
 def calculate_content_similarity(
     movie: Dict[str, Any],
@@ -353,8 +372,14 @@ def calculate_content_similarity(
 def update_user_preferences_from_favorites(user_ip: str) -> None:
     """Update user preferences based on their favorite movies."""
     prefs = get_user_preferences(user_ip)
-    fav_movies = get_favorite_movies()
+    fav_movies = get_user_favorite_movies(user_ip)
     prefs["favorite_movies"] = fav_movies
+
+    prefs["viewed_movies"] = set()
+    prefs["liked_genres"] = set()
+    prefs["liked_categories"] = set()
+    prefs["rating_preference"] = 7.0
+    prefs["year_range"] = {"min": 1980, "max": 2024}
     
     if not fav_movies:
         return
@@ -724,10 +749,13 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
         if success:
             # Update user preferences for better recommendations
             user_ip = request.client.host if request.client else "unknown"
+            user_favorite_keys.setdefault(user_ip, set()).add((favorite.name, favorite.year))
             update_user_preferences_from_favorites(user_ip)
             return {"message": "Added to favorites"}
         else:
             raise HTTPException(status_code=400, detail="Not found or already in favorites")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error adding to favorites")
         raise HTTPException(status_code=500, detail="Internal error")
@@ -738,9 +766,14 @@ async def remove_from_favorites(request: Request, favorite: FavoriteRequest):
     try:
         success = remove_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
+            user_ip = request.client.host if request.client else "unknown"
+            user_favorite_keys.setdefault(user_ip, set()).discard((favorite.name, favorite.year))
+            update_user_preferences_from_favorites(user_ip)
             return {"message": "Removed from favorites"}
         else:
             raise HTTPException(status_code=404, detail="Not found in favorites")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error removing from favorites")
         raise HTTPException(status_code=500, detail="Internal error")
@@ -998,6 +1031,8 @@ async def get_discovery_recommendations(
 
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
+    if isinstance(exc, FastAPIHTTPException) and exc.detail:
+        return JSONResponse(status_code=404, content={"detail": exc.detail})
     return JSONResponse(status_code=404, content={"detail": "Resource not found"})
 
 @app.exception_handler(500)
