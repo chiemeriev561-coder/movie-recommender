@@ -75,3 +75,34 @@ def test_trailer_endpoint_rejects_missing_tmdb_key(monkeypatch):
 
     assert result.status_code == 503
     assert result.json()["detail"] == "TMDB integration is not configured"
+
+
+def test_recommendations_endpoint_returns_tmdb_movies(monkeypatch):
+    monkeypatch.setattr(api, "TMDB_API_KEY", "dummy_key")
+    response = MockResponse(200, {
+        "results": [
+            {
+                "id": 1292695,
+                "title": "Next Movie",
+                "poster_path": "/next.jpg",
+                "release_date": "2025-01-15",
+                "vote_average": 7.6,
+            }
+        ]
+    })
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda *args, **kwargs: MockAsyncClient(response))
+
+    result = client.get("/api/movies/1613798/recommendations")
+
+    assert result.status_code == 200
+    assert result.json() == {
+        "movies": [
+            {
+                "id": 1292695,
+                "name": "Next Movie",
+                "poster_url": "https://image.tmdb.org/t/p/w500/next.jpg",
+                "year": "2025",
+                "rating": 7.6,
+            }
+        ]
+    }

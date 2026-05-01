@@ -164,6 +164,16 @@ class FeaturedResponse(BaseModel):
 class TrailerResponse(BaseModel):
     youtube_key: str
 
+class TMDBRecommendationItem(BaseModel):
+    id: Optional[int] = None
+    name: Optional[str] = None
+    poster_url: Optional[str] = None
+    year: str
+    rating: Optional[float] = None
+
+class TMDBRecommendationsResponse(BaseModel):
+    movies: List[TMDBRecommendationItem]
+
 class RecommendationResponse(BaseModel):
     movie: MovieResponse
     similarity_score: float
@@ -711,6 +721,65 @@ async def get_movie_trailer(request: Request, movie_id: int):
         raise HTTPException(status_code=404, detail="No YouTube trailer found")
 
     return TrailerResponse(youtube_key=trailer["key"])
+
+@app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)
+@limiter.limit("20/minute")
+async def get_movie_recommendations(request: Request, movie_id: str):
+    clean_id = str(movie_id).strip()
+
+    if not TMDB_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TMDB integration is not configured"
+        )
+
+    url = f"https://api.themoviedb.org/3/movie/{clean_id}/recommendations"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, params={"api_key": TMDB_API_KEY})
+    except httpx.RequestError:
+        logger.exception("Failed to reach TMDB recommendations endpoint for movie_id=%s", clean_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch recommendations from TMDB"
+        )
+
+    if response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Movie not found on TMDB")
+
+    if response.status_code != status.HTTP_200_OK:
+        logger.warning(
+            "TMDB recommendations lookup failed for movie_id=%s with status=%s",
+            clean_id,
+            response.status_code,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch recommendations from TMDB"
+        )
+
+    try:
+        raw_results = response.json().get("results", [])
+    except ValueError:
+        logger.warning("TMDB returned invalid JSON for movie_id=%s recommendations lookup", clean_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Invalid recommendations response from TMDB"
+        )
+
+    recommendations = [
+        TMDBRecommendationItem(
+            id=m.get("id"),
+            name=m.get("title"),
+            poster_url=f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get("poster_path") else None,
+            year=(m.get("release_date") or "0000")[:4],
+            rating=m.get("vote_average"),
+        )
+        for m in raw_results[:10]
+    ]
+
+    return TMDBRecommendationsResponse(movies=recommendations)
 
 @app.get("/api/genres", response_model=List[GenreResponse])
 @limiter.limit("20/minute")
