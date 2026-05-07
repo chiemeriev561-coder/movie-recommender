@@ -19,6 +19,7 @@ from starlette.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from dotenv import load_dotenv
 
+import diskcache
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -86,6 +87,9 @@ env_regex = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip()
 ALLOWED_ORIGIN_REGEX = env_regex if env_regex else r"https?://(.*\.)?lovable(app|project)\.com|https?://(.*\.)?lovable\.app"
 
 FAVORITES_FILE = os.getenv("FAVORITES_FILE", "favorites.json")
+
+# Persistent Disk Cache for TMDB responses
+cache = diskcache.Cache("./.api_cache")
 
 # Custom CORS Logging Middleware
 class CORSLoggingMiddleware(BaseHTTPMiddleware):
@@ -204,6 +208,12 @@ class CategoryResponse(BaseModel):
 
 async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
     """Helper to fetch multiple pages of trending/popular movies from TMDB."""
+    cache_key = f"trending_pages_{pages}"
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        logger.info(f"Returning cached trending results for {pages} pages")
+        return cached_result
+
     if not TMDB_API_KEY:
         return sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:50]
 
@@ -242,6 +252,9 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
             "category": "Trending",
             "box_office_millions": None
         })
+    
+    # Cache the formatted results for 24 hours
+    cache.set(cache_key, formatted, expire=86400)
     return formatted
 
 def select_tmdb_trailer(videos: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -674,6 +687,11 @@ async def get_top_movies(
 @app.get("/api/movies/{movie_id}/trailer", response_model=TrailerResponse)
 @limiter.limit("20/minute")
 async def get_movie_trailer(request: Request, movie_id: int):
+    cache_key = f"trailer_{movie_id}"
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return TrailerResponse(youtube_key=cached_result)
+
     if not TMDB_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -719,12 +737,17 @@ async def get_movie_trailer(request: Request, movie_id: int):
     if not trailer:
         raise HTTPException(status_code=404, detail="No YouTube trailer found")
 
+    cache.set(cache_key, trailer["key"], expire=86400 * 7)  # Cache trailers for 7 days
     return TrailerResponse(youtube_key=trailer["key"])
 
 @app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)
 @limiter.limit("20/minute")
 async def get_movie_recommendations(request: Request, movie_id: int):
     clean_id = str(movie_id).strip()
+    cache_key = f"tmdb_rec_{clean_id}"
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return TMDBRecommendationsResponse(movies=cached_result)
 
     if not TMDB_API_KEY:
         raise HTTPException(
@@ -778,6 +801,7 @@ async def get_movie_recommendations(request: Request, movie_id: int):
         for m in raw_results[:10]
     ]
 
+    cache.set(cache_key, recommendations, expire=86400)  # Cache recommendations for 24 hours
     return TMDBRecommendationsResponse(movies=recommendations)
 
 @app.get("/api/genres", response_model=List[GenreResponse])

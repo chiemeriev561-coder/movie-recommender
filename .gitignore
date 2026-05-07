@@ -47,6 +47,8 @@ coverage.xml
 *.cover
 *.py,cover
 .hypotheses/
+# Cache directories
+.api_cache/
 .pytest_cache/
 pytestdebuglog.txt
 
