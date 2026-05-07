@@ -134,8 +134,10 @@ app.add_middleware(
 app.add_middleware(CORSLoggingMiddleware)
 
 # Pydantic models for request/response
+from pydantic import AliasChoices
+
 class MovieResponse(BaseModel):
-    id: Optional[int] = None
+    id: Optional[int] = Field(None, validation_alias=AliasChoices("id", "movieId"))
     name: str
     year: int
     category: str
@@ -144,7 +146,7 @@ class MovieResponse(BaseModel):
     rating: float
     poster_url: Optional[str] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 class TrendingResponse(BaseModel):
     movies: List[MovieResponse]
@@ -229,7 +231,7 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
     formatted = []
     for m in unique_results:
         genre_ids = m.get("genre_ids", [])
-        genre_names = [TMDB_GENRES.get(gid, "Movie") for gid in genre_ids]
+        genre_names = [TMDB_GENRES.get(gid, "Unknown") for gid in genre_ids]
         formatted.append({
             "id": m.get("id"),
             "name": m.get("title"),
@@ -386,30 +388,27 @@ def update_user_preferences_from_favorites(user_ip: str) -> None:
     prefs["favorite_movies"] = fav_movies
 
     prefs["viewed_movies"] = set()
-    prefs["liked_genres"] = set()
-    prefs["liked_categories"] = set()
-    prefs["rating_preference"] = 7.0
-    prefs["year_range"] = {"min": 1980, "max": 2024}
+    # Merge existing preferences instead of overwriting completely
+    liked_genres = prefs.get("liked_genres", set())
+    liked_categories = prefs.get("liked_categories", set())
     
     if not fav_movies:
         return
     
     # Extract genres from favorites
-    all_genres = set()
-    all_categories = set()
     ratings = []
     years = []
     
     for movie in fav_movies:
         # Genres
         if movie.get("genre"):
-            all_genres.update(g.strip().lower() for g in movie["genre"].split("/"))
+            liked_genres.update(g.strip().lower() for g in movie["genre"].split("/"))
         if movie.get("all_genres"):
-            all_genres.update(g.strip().lower() for g in movie.get("all_genres", []))
+            liked_genres.update(g.strip().lower() for g in movie.get("all_genres", []))
         
         # Categories
         if movie.get("category"):
-            all_categories.add(movie["category"].lower())
+            liked_categories.add(movie["category"].lower())
         
         # Ratings and years for averaging
         if movie.get("rating"):
@@ -420,8 +419,8 @@ def update_user_preferences_from_favorites(user_ip: str) -> None:
         # Track viewed movies
         prefs["viewed_movies"].add((movie.get("name"), movie.get("year")))
     
-    prefs["liked_genres"] = all_genres
-    prefs["liked_categories"] = all_categories
+    prefs["liked_genres"] = liked_genres
+    prefs["liked_categories"] = liked_categories
     
     if ratings:
         prefs["rating_preference"] = sum(ratings) / len(ratings)
@@ -724,7 +723,7 @@ async def get_movie_trailer(request: Request, movie_id: int):
 
 @app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)
 @limiter.limit("20/minute")
-async def get_movie_recommendations(request: Request, movie_id: str):
+async def get_movie_recommendations(request: Request, movie_id: int):
     clean_id = str(movie_id).strip()
 
     if not TMDB_API_KEY:
