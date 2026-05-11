@@ -578,6 +578,11 @@ def get_similar_movies(
     scored.sort(key=lambda x: x["score"], reverse=True)
     return scored[:limit]
 
+@app.get("/ping")
+async def ping():
+    """Ultra-lightweight endpoint for keep-alive services."""
+    return "pong"
+
 # Root endpoint
 @app.get("/")
 @limiter.limit("60/minute")
