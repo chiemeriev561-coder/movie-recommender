@@ -68,8 +68,35 @@ TMDB_GENRES = {
     10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western"
 }
 
-# Engagement tracker (In-memory: tracks unique genres searched/filtered per IP)
-user_genres: Dict[str, Set[str]] = {}
+# Persistent Disk Cache for TMDB responses and user state
+cache = diskcache.Cache("./.api_cache")
+
+def get_user_genres_set(user_ip: str) -> Set[str]:
+    """Get unique genres searched/filtered by a specific user IP."""
+    return cache.get(f"genres_{user_ip}", set())
+
+def add_user_genre(user_ip: str, genre: str) -> None:
+    """Track a unique genre for a specific user IP."""
+    genres = get_user_genres_set(user_ip)
+    if genre.lower() not in genres:
+        genres.add(genre.lower())
+        cache.set(f"genres_{user_ip}", genres, expire=86400 * 7)
+
+def get_user_favorite_keys(user_ip: str) -> Set[tuple[str, int]]:
+    """Get favorite movie keys associated with a specific user IP."""
+    return cache.get(f"fav_keys_{user_ip}", set())
+
+def add_user_favorite_key(user_ip: str, name: str, year: int) -> None:
+    """Add a favorite movie key for a specific user IP."""
+    keys = get_user_favorite_keys(user_ip)
+    keys.add((name, year))
+    cache.set(f"fav_keys_{user_ip}", keys, expire=86400 * 30)
+
+def remove_user_favorite_key(user_ip: str, name: str, year: int) -> None:
+    """Remove a favorite movie key for a specific user IP."""
+    keys = get_user_favorite_keys(user_ip)
+    keys.discard((name, year))
+    cache.set(f"fav_keys_{user_ip}", keys, expire=86400 * 30)
 
 # Add bare domains and both http/https for common origins
 base_origins = [
@@ -87,9 +114,6 @@ env_regex = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip()
 ALLOWED_ORIGIN_REGEX = env_regex if env_regex else r"https?://(.*\.)?lovable(app|project)\.com|https?://(.*\.)?lovable\.app"
 
 FAVORITES_FILE = os.getenv("FAVORITES_FILE", "favorites.json")
-
-# Persistent Disk Cache for TMDB responses
-cache = diskcache.Cache("./.api_cache")
 
 # Custom CORS Logging Middleware
 class CORSLoggingMiddleware(BaseHTTPMiddleware):
@@ -285,14 +309,11 @@ def select_tmdb_trailer(videos: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
 
     return youtube_videos[0]
 
-# User preference tracking for content-based recommendations
-user_preferences: Dict[str, Dict[str, Any]] = {}
-user_favorite_keys: Dict[str, Set[tuple[str, int]]] = {}
-
 def get_user_preferences(user_ip: str) -> Dict[str, Any]:
     """Get or initialize user preferences for content-based filtering."""
-    if user_ip not in user_preferences:
-        user_preferences[user_ip] = {
+    prefs = cache.get(f"prefs_{user_ip}")
+    if prefs is None:
+        prefs = {
             "viewed_movies": set(),  # (name, year) tuples
             "liked_genres": set(),
             "liked_categories": set(),
@@ -300,12 +321,15 @@ def get_user_preferences(user_ip: str) -> Dict[str, Any]:
             "year_range": {"min": 1980, "max": 2024},
             "favorite_movies": [],  # List of movie dicts
         }
-    return user_preferences[user_ip]
+    return prefs
 
+def save_user_preferences(user_ip: str, prefs: Dict[str, Any]) -> None:
+    """Save user preferences to disk cache."""
+    cache.set(f"prefs_{user_ip}", prefs, expire=86400 * 30)
 
 def get_user_favorite_movies(user_ip: str) -> List[Dict[str, Any]]:
     """Return favorite movie records associated with a specific user."""
-    favorite_keys = user_favorite_keys.get(user_ip, set())
+    favorite_keys = get_user_favorite_keys(user_ip)
     if not favorite_keys:
         return []
 
@@ -406,6 +430,7 @@ def update_user_preferences_from_favorites(user_ip: str) -> None:
     liked_categories = prefs.get("liked_categories", set())
     
     if not fav_movies:
+        save_user_preferences(user_ip, prefs)
         return
     
     # Extract genres from favorites
@@ -444,6 +469,8 @@ def update_user_preferences_from_favorites(user_ip: str) -> None:
             "min": int(avg_year - 20),
             "max": int(avg_year + 10)
         }
+    
+    save_user_preferences(user_ip, prefs)
 
 def get_content_recommendations(
     user_ip: str,
@@ -572,11 +599,8 @@ async def get_trending_movies(request: Request, genre: Optional[str] = Query(Non
     """Fetch trending movies. Returns 10 by default, or filtered results."""
     user_ip = request.client.host if request.client else "unknown"
     
-    if user_ip not in user_genres:
-        user_genres[user_ip] = set()
-
     if genre:
-        user_genres[user_ip].add(genre.lower())
+        add_user_genre(user_ip, genre)
     
     trending_data = await fetch_trending_from_tmdb()
     
@@ -588,7 +612,7 @@ async def get_trending_movies(request: Request, genre: Optional[str] = Query(Non
         # Initial view: show only top 10
         trending_data = trending_data[:10]
         
-    engagement_count = len(user_genres[user_ip])
+    engagement_count = len(get_user_genres_set(user_ip))
     is_unlocked = engagement_count >= 5
 
     # Return simple list for frontend compatibility
@@ -608,13 +632,11 @@ async def search_movies(
     - Unlocked: Searches BOTH live TMDB and Classic Vault (CSV).
     """
     user_ip = request.client.host if request.client else "unknown"
-    if user_ip not in user_genres:
-        user_genres[user_ip] = set()
     
     if genre:
-        user_genres[user_ip].add(genre.lower())
+        add_user_genre(user_ip, genre)
     
-    engagement_count = len(user_genres.get(user_ip, set()))
+    engagement_count = len(get_user_genres_set(user_ip))
     is_unlocked = engagement_count >= 5
     
     if not q and not genre:
@@ -687,16 +709,16 @@ async def get_top_movies(
 @app.get("/api/movies/{movie_id}/trailer", response_model=TrailerResponse)
 @limiter.limit("20/minute")
 async def get_movie_trailer(request: Request, movie_id: int):
-    cache_key = f"trailer_{movie_id}"
-    cached_result = cache.get(cache_key)
-    if cached_result is not None:
-        return TrailerResponse(youtube_key=cached_result)
-
     if not TMDB_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="TMDB integration is not configured"
         )
+
+    cache_key = f"trailer_{movie_id}"
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return TrailerResponse(youtube_key=cached_result)
 
     url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
 
@@ -743,17 +765,17 @@ async def get_movie_trailer(request: Request, movie_id: int):
 @app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)
 @limiter.limit("20/minute")
 async def get_movie_recommendations(request: Request, movie_id: int):
-    clean_id = str(movie_id).strip()
-    cache_key = f"tmdb_rec_{clean_id}"
-    cached_result = cache.get(cache_key)
-    if cached_result is not None:
-        return TMDBRecommendationsResponse(movies=cached_result)
-
     if not TMDB_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="TMDB integration is not configured"
         )
+
+    clean_id = str(movie_id).strip()
+    cache_key = f"tmdb_rec_{clean_id}"
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return TMDBRecommendationsResponse(movies=cached_result)
 
     url = f"https://api.themoviedb.org/3/movie/{clean_id}/recommendations"
 
@@ -841,7 +863,7 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
         if success:
             # Update user preferences for better recommendations
             user_ip = request.client.host if request.client else "unknown"
-            user_favorite_keys.setdefault(user_ip, set()).add((favorite.name, favorite.year))
+            add_user_favorite_key(user_ip, favorite.name, favorite.year)
             update_user_preferences_from_favorites(user_ip)
             return {"message": "Added to favorites"}
         else:
@@ -859,7 +881,7 @@ async def remove_from_favorites(request: Request, favorite: FavoriteRequest):
         success = remove_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
             user_ip = request.client.host if request.client else "unknown"
-            user_favorite_keys.setdefault(user_ip, set()).discard((favorite.name, favorite.year))
+            remove_user_favorite_key(user_ip, favorite.name, favorite.year)
             update_user_preferences_from_favorites(user_ip)
             return {"message": "Removed from favorites"}
         else:
@@ -990,8 +1012,10 @@ async def get_personalized_recommendations(
     try:
         # Update preferences from search history
         prefs = get_user_preferences(user_ip)
-        if user_ip in user_genres:
-            prefs["liked_genres"].update(user_genres[user_ip])
+        user_genres_set = get_user_genres_set(user_ip)
+        if user_genres_set:
+            prefs["liked_genres"].update(user_genres_set)
+            save_user_preferences(user_ip, prefs)
         
         # Get recommendations
         scored_movies = get_content_recommendations(

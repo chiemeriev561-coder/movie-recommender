@@ -35,8 +35,7 @@ def test_cors_configuration_allows_lovable_origin_regex():
 def test_add_favorite_returns_client_error_instead_of_500(tmp_path, monkeypatch):
     favorites_path = tmp_path / "favorites.json"
     monkeypatch.setattr(api, "FAVORITES_FILE", str(favorites_path))
-    api.user_favorite_keys.clear()
-    api.user_preferences.clear()
+    api.cache.clear()
 
     response = client.post("/api/favorites", json={"name": "Missing Movie", "year": 2000})
 
@@ -47,8 +46,7 @@ def test_add_favorite_returns_client_error_instead_of_500(tmp_path, monkeypatch)
 def test_remove_favorite_returns_not_found_instead_of_500(tmp_path, monkeypatch):
     favorites_path = tmp_path / "favorites.json"
     monkeypatch.setattr(api, "FAVORITES_FILE", str(favorites_path))
-    api.user_favorite_keys.clear()
-    api.user_preferences.clear()
+    api.cache.clear()
 
     response = client.request("DELETE", "/api/favorites", json={"name": "Inception", "year": 2010})
 
@@ -59,8 +57,7 @@ def test_remove_favorite_returns_not_found_instead_of_500(tmp_path, monkeypatch)
 def test_recommendations_use_request_users_own_favorites(tmp_path, monkeypatch):
     favorites_path = tmp_path / "favorites.json"
     monkeypatch.setattr(api, "FAVORITES_FILE", str(favorites_path))
-    api.user_favorite_keys.clear()
-    api.user_preferences.clear()
+    api.cache.clear()
     mr.load_favorites(str(favorites_path))
 
     first_user_client = TestClient(api.app, client=("198.51.100.10", 50000))

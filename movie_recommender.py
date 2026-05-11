@@ -420,11 +420,9 @@ def save_movies(path: str, movie_list: List[dict]) -> bool:
     """Save movies to a JSON file. Returns True on success."""
     global last_save_error
     try:
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with p.open('w', encoding='utf-8') as f:
-            # Use JSON-serializable representation to avoid issues with cached types (sets etc.)
-            json.dump(serialize_movies(movie_list), f, indent=2)
+        # Use JSON-serializable representation to avoid issues with cached types (sets etc.)
+        payload = serialize_movies(movie_list)
+        _atomic_write_json(path, payload)
         logger.info("Saved %d movies to %s", len(movie_list), path)
         # clear last error on success
         last_save_error = None
