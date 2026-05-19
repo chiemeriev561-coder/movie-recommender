@@ -9,7 +9,7 @@ A robust movie recommendation system with a FastAPI REST API and an interactive 
 - **REST API**: FastAPI-powered endpoints for search, favorites, statistics, and TMDB trailer lookup.
 - **Interactive CLI**: Command-line tool for searching and managing favorites.
 - **Fuzzy Search**: Typo-tolerant movie searching (powered by RapidFuzz).
-- **Data Integration**: Combines built-in movies with external CSV datasets and live TMDB metadata.
+- **Data Integration**: Sources recommendations and metadata exclusively from TMDB. Local CSV dataset support has been removed.
 - **Deployment Ready**: Configured for production with Gunicorn/Uvicorn and environment variables.
 
 ## API Documentation
@@ -46,8 +46,7 @@ Key configuration options in `.env`:
 - `ALLOWED_ORIGINS`: Comma-separated CORS allowed origins
 - `ALLOWED_ORIGIN_REGEX`: Optional regex for additional allowed origins such as Lovable preview URLs
 - `FAVORITES_FILE`: Path to store favorites JSON
-- `MOVIES_CSV_PATH`: Path to movies dataset
-- `RATINGS_CSV_PATH`: Path to ratings dataset
+(Local CSV dataset support has been removed. All recommendation and metadata endpoints now use TMDB; ensure TMDB_API_KEY is set.)
 
 If you want TMDB-powered posters, movie IDs, and trailers, set:
 
@@ -127,7 +126,7 @@ PYTHONPATH=. python -m pytest
 
 ## Dataset notes
 
-The repository includes a cleaned dataset (`movies_cleaned.csv`, `ratings_cleaned.csv`). The system automatically integrates this data on startup.
+Local CSV dataset support has been removed. The API and recommendation engine now source movie metadata, posters, trailers and recommendations exclusively from TMDB. Make sure `TMDB_API_KEY` is configured in your `.env` for recommendation, trending, and trailer endpoints to work correctly.
 
 ## Contributing and License
 

@@ -4,7 +4,7 @@
 
 This REST API provides movie recommendation functionality including search, filtering, favorites management, and more. The API is built with FastAPI and includes automatic interactive documentation.
 
-If `TMDB_API_KEY` is configured, TMDB-backed endpoints can include movie IDs, posters, and trailer lookup data.
+This API sources recommendations and metadata exclusively from TMDB. `TMDB_API_KEY` must be configured for recommendation, search, trending, and trailer endpoints to function.
 
 ## Quick Start
 
@@ -101,7 +101,7 @@ curl "http://localhost:8000/api/movies/search?year=2021&sort_by=box_office"
 GET /api/movies/trending
 ```
 
-Fetch trending movies from TMDB API with a fallback to the local CSV dataset.
+Fetch trending movies from TMDB API. Local CSV fallback has been removed; TMDB is the single source of truth for trending and recommendation data.
 
 **Response:**
 
@@ -264,7 +264,7 @@ Check API health and get basic statistics.
 GET /api/statistics
 ```
 
-Get detailed statistics about movie dataset.
+Get detailed statistics about movie dataset (sourced from TMDB).
 
 ## Data Models
 
@@ -394,9 +394,9 @@ response = requests.post("http://localhost:8000/api/favorites",
 
 ### Dataset
 
-- Movies are loaded from the built-in dataset combined with CSV data
-- Favorites are persisted in `favorites.json`
-- Dataset can be expanded using the `expand_dataset_if_needed()` function
+- All movie metadata and recommendations are sourced from TMDB only; local CSV datasets are no longer used.
+- Favorites are persisted in `favorites.json`.
+- The server requires `TMDB_API_KEY` to be set for recommendation, search, trending, and trailer functionality.
 
 ## Troubleshooting
 
