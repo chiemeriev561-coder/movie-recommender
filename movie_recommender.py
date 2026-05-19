@@ -779,13 +779,20 @@ def expand_dataset_if_needed(min_total: int = 600, auto_save: bool = False, save
 
 
 def ensure_search_fields(movie: dict) -> None:
-    """Cache lowercased search text and token set to speed searches."""
-    name = str(movie.get('name', '')).lower()
-    genre = str(movie.get('genre', '')).lower()
-    category = str(movie.get('category', '')).lower()
-    search_text = f"{name} {genre} {category}".strip()
+    """Cache lowercased search text, tokens and genre list to speed searches and similarity calculations."""
+    name = str(movie.get('name', '')).strip()
+    name_l = name.lower()
+    genre_raw = str(movie.get('genre', '')).strip()
+    genre_l = genre_raw.lower()
+    category = str(movie.get('category', '')).strip()
+    category_l = category.lower()
+    search_text = f"{name_l} {genre_l} {category_l}".strip()
     movie['_search_text'] = search_text
-    movie['_tokens'] = set(t for t in re.split(r'\s+|/|,', search_text) if t)
+    # tokens split on whitespace, slashes and commas
+    movie['_tokens'] = set(t for t in re.split(r'\s+|/|,|\|', search_text) if t)
+    # list of canonical genre tokens (e.g., 'Action', 'Family') preserved as lowercase
+    movie['all_genres'] = [t for t in re.split(r'[\/|,]', genre_raw) if t.strip()]
+    movie['all_genres'] = [g.strip() for g in movie['all_genres']]
 
 
 def complete_initialization():
