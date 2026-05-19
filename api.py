@@ -309,6 +309,72 @@ def select_tmdb_trailer(videos: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
 
     return youtube_videos[0]
 
+
+# --- TMDB helper utilities for TMDB-only recommendations ---
+async def tmdb_search_movie(title: str, year: Optional[int] = None, limit: int = 5) -> List[Dict[str, Any]]:
+    """Search TMDB for movies matching title (optionally year). Returns list of TMDB movie dicts."""
+    if not TMDB_API_KEY:
+        return []
+    params = {"api_key": TMDB_API_KEY, "query": title, "page": 1}
+    if year:
+        # primary_release_year can help narrow results
+        params["primary_release_year"] = year
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        try:
+            resp = await client.get("https://api.themoviedb.org/3/search/movie", params=params)
+        except Exception:
+            logger.exception("TMDB search request failed for title=%s year=%s", title, year)
+            return []
+    if resp.status_code != 200:
+        logger.warning("TMDB search returned status %s for title=%s", resp.status_code, title)
+        return []
+    try:
+        results = resp.json().get("results", [])[:limit]
+    except ValueError:
+        logger.warning("Invalid JSON from TMDB search for title=%s", title)
+        return []
+    return results
+
+
+async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10) -> List[Dict[str, Any]]:
+    """Get TMDB recommendations for a TMDB movie ID and return formatted movie dicts."""
+    if not TMDB_API_KEY:
+        return []
+    cache_key = f"tmdb_rec_id_{tmdb_id}_{top_n}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"https://api.themoviedb.org/3/movie/{tmdb_id}/recommendations", params={"api_key": TMDB_API_KEY, "page": 1})
+        except Exception:
+            logger.exception("Failed to fetch TMDB recommendations for id=%s", tmdb_id)
+            return []
+    if resp.status_code != 200:
+        logger.warning("TMDB recommendations returned status %s for id=%s", resp.status_code, tmdb_id)
+        return []
+    try:
+        raw = resp.json().get("results", [])[:top_n]
+    except ValueError:
+        logger.warning("Invalid JSON in TMDB recommendations for id=%s", tmdb_id)
+        return []
+
+    formatted = []
+    for r in raw:
+        formatted.append({
+            "id": r.get("id"),
+            "name": r.get("title"),
+            "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+            "category": "TMDB",
+            "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
+            "box_office_millions": None,
+            "rating": round(r.get("vote_average", 0), 1),
+            "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+        })
+
+    cache.set(cache_key, formatted, expire=86400)
+    return formatted
+
 def get_user_preferences(user_ip: str) -> Dict[str, Any]:
     """Get or initialize user preferences for content-based filtering."""
     prefs = cache.get(f"prefs_{user_ip}")
@@ -951,47 +1017,47 @@ async def get_similar_movies_endpoint(
     limit: int = Query(8, ge=1, le=20)
 ):
     """
-    Get movies similar to a specific movie based on content features.
-    Uses genre overlap, category, year proximity, and rating similarity.
+    TMDB-based similar movies endpoint. Does not use the local dataset.
+    Searches TMDB for the given title+year, then returns TMDB's recommendations for that movie.
     """
     try:
-        # Find the target movie
-        target_movie = None
-        for movie in movies:
-            if movie.get('name', '').lower() == name.lower() and movie.get('year') == year:
-                target_movie = movie
-                break
-        
-        if not target_movie:
-            raise HTTPException(status_code=404, detail="Movie not found")
-        
-        # Get similar movies
-        similar = get_similar_movies(target_movie, limit=limit)
-        
+        if not TMDB_API_KEY:
+            raise HTTPException(status_code=503, detail="TMDB integration is not configured")
+
+        # Search TMDB for the movie title and narrow by year
+        results = await tmdb_search_movie(name, year=year, limit=5)
+        if not results:
+            raise HTTPException(status_code=404, detail="Movie not found on TMDB")
+
+        tmdb_movie = results[0]
+        tmdb_id = tmdb_movie.get("id")
+
+        recs = await tmdb_get_recommendations(tmdb_id, top_n=limit)
+
         recommendations = [
             RecommendationResponse(
-                movie=MovieResponse(**item["movie"]),
-                similarity_score=item["score"],
-                match_reason=item["reason"]
+                movie=MovieResponse(**m),
+                similarity_score=m.get('rating') or 0.0,
+                match_reason="TMDB recommendation"
             )
-            for item in similar
+            for m in recs
         ]
-        
+
         return RecommendationsResponse(
             recommendations=recommendations,
             based_on={
-                "movie": target_movie.get("name"),
-                "year": target_movie.get("year"),
-                "genre": target_movie.get("genre"),
-                "category": target_movie.get("category")
+                "query": name,
+                "matched_title": tmdb_movie.get("title"),
+                "matched_year": int((tmdb_movie.get("release_date") or "0000")[:4]) if tmdb_movie.get("release_date") else year,
+                "source": "tmdb"
             },
-            total_available=len(similar)
+            total_available=len(recommendations)
         )
-        
+
     except HTTPException:
         raise
-    except Exception as e:
-        logger.exception("Error getting similar movies")
+    except Exception:
+        logger.exception("Error getting similar movies from TMDB")
         raise HTTPException(status_code=500, detail="Internal error")
 
 
@@ -1152,38 +1218,90 @@ async def get_personalized_recommendations(
     user_ip = request.client.host if request.client else "unknown"
     
     try:
+        if not TMDB_API_KEY:
+            raise HTTPException(status_code=503, detail="TMDB integration is not configured")
+
         # Update preferences from search history
         prefs = get_user_preferences(user_ip)
         user_genres_set = get_user_genres_set(user_ip)
         if user_genres_set:
             prefs["liked_genres"].update(user_genres_set)
             save_user_preferences(user_ip, prefs)
-        
-        # Get recommendations
-        scored_movies = get_content_recommendations(
-            user_ip=user_ip,
-            limit=limit,
-            exclude_viewed=not include_viewed
-        )
-        
+
+        # Gather user's favorite movies (name, year) and map to TMDB IDs
+        fav_keys = get_user_favorite_keys(user_ip)
+        tmdb_recs = []
+        seen_ids = set()
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for name, year in list(fav_keys)[:5]:
+                # Search TMDB for each favorite
+                try:
+                    resp = await client.get("https://api.themoviedb.org/3/search/movie", params={"api_key": TMDB_API_KEY, "query": name, "primary_release_year": year, "page": 1})
+                except Exception:
+                    logger.exception("Failed TMDB search for user's favorite %s (%s)", name, year)
+                    continue
+                if resp.status_code != 200:
+                    continue
+                try:
+                    results = resp.json().get("results", [])
+                except ValueError:
+                    continue
+                if not results:
+                    continue
+                tmdb_id = results[0].get("id")
+                if not tmdb_id:
+                    continue
+                recs = await tmdb_get_recommendations(tmdb_id, top_n=limit)
+                for r in recs:
+                    if r.get('id') in seen_ids:
+                        continue
+                    seen_ids.add(r.get('id'))
+                    tmdb_recs.append(r)
+
+        # If no favorites or no TMDB recs, fallback to TMDB popular/top rated
+        if not tmdb_recs:
+            # Use TMDB discover/popular endpoint
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                try:
+                    resp = await client.get("https://api.themoviedb.org/3/movie/top_rated", params={"api_key": TMDB_API_KEY, "page": 1})
+                except Exception:
+                    logger.exception("Failed to fetch TMDB top_rated")
+                    raise HTTPException(status_code=502, detail="Failed to fetch TMDB data")
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=502, detail="TMDB top_rated failed")
+                try:
+                    raw = resp.json().get("results", [])[:limit]
+                except ValueError:
+                    raise HTTPException(status_code=502, detail="Invalid TMDB response")
+                tmdb_recs = []
+                for r in raw:
+                    tmdb_recs.append({
+                        "id": r.get("id"),
+                        "name": r.get("title"),
+                        "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+                        "category": "TMDB",
+                        "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
+                        "box_office_millions": None,
+                        "rating": round(r.get("vote_average", 0), 1),
+                        "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+                    })
+
+        # Build recommendations response (deduplicate and limit)
         recommendations = [
             RecommendationResponse(
-                movie=MovieResponse(**item["movie"]),
-                similarity_score=item["score"],
-                match_reason=item["reason"]
+                movie=MovieResponse(**m),
+                similarity_score=m.get('rating') or 0.0,
+                match_reason="TMDB recommendation"
             )
-            for item in scored_movies
+            for m in tmdb_recs[:limit]
         ]
-        
-        # Build "based_on" info for transparency
+
         based_on = {
-            "liked_genres": list(prefs.get("liked_genres", set()))[:5],
-            "liked_categories": list(prefs.get("liked_categories", set()))[:3],
-            "preferred_rating": round(prefs.get("rating_preference", 7.0), 1),
-            "year_range": prefs.get("year_range", {"min": 1980, "max": 2024}),
-            "favorites_count": len(prefs.get("favorite_movies", []))
+            "source": "tmdb",
+            "favorites_count": len(get_user_favorite_keys(user_ip))
         }
-        
+
         return RecommendationsResponse(
             recommendations=recommendations,
             based_on=based_on,
@@ -1191,7 +1309,7 @@ async def get_personalized_recommendations(
         )
         
     except Exception as e:
-        logger.exception("Error generating recommendations")
+        logger.exception("Error generating TMDB-based personalized recommendations")
         raise HTTPException(status_code=500, detail="Internal error")
 
 @app.get("/api/recommendations/discovery", response_model=RecommendationsResponse)
@@ -1207,84 +1325,88 @@ async def get_discovery_recommendations(
     user_ip = request.client.host if request.client else "unknown"
     
     try:
+        if not TMDB_API_KEY:
+            raise HTTPException(status_code=503, detail="TMDB integration is not configured")
+
         prefs = get_user_preferences(user_ip)
         liked_genres = prefs.get("liked_genres", set())
-        
+        viewed = prefs.get("viewed_movies", set())
+
+        # Use TMDB discover endpoint to find high-rated movies outside user's liked genres
+        params = {"api_key": TMDB_API_KEY, "sort_by": "vote_average.desc", "vote_count.gte": 200, "page": 1}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                resp = await client.get("https://api.themoviedb.org/3/discover/movie", params=params)
+            except Exception:
+                logger.exception("Failed to fetch TMDB discover")
+                raise HTTPException(status_code=502, detail="Failed to reach TMDB")
+        if resp.status_code != 200:
+            logger.warning("TMDB discover failed with status %s", resp.status_code)
+            raise HTTPException(status_code=502, detail="TMDB discover failed")
+        try:
+            raw = resp.json().get("results", [])
+        except ValueError:
+            raise HTTPException(status_code=502, detail="Invalid TMDB response")
+
         candidates = []
-        for movie in movies:
-            movie_key = (movie.get("name"), movie.get("year"))
-            if movie_key in prefs.get("viewed_movies", set()):
+        for r in raw:
+            movie_key = (r.get('title'), int((r.get('release_date') or '0000')[:4]) if r.get('release_date') else 0)
+            if movie_key in viewed:
                 continue
-            
-            # Look for movies with different genres but high ratings
-            movie_genres = set()
-            if movie.get("genre"):
-                movie_genres.update(g.strip().lower() for g in movie["genre"].split("/"))
-            
-            # Score based on discovery potential
+            # encourage different genres
+            genres = set(TMDB_GENRES.get(g, '').lower() for g in r.get('genre_ids', []) if TMDB_GENRES.get(g))
+            overlap = len(genres & liked_genres)
+            # compute discovery score
             score = 0
             reasons = []
-            
-            # High rating is key for discovery
-            rating = movie.get("rating", 0)
+            rating = r.get('vote_average', 0)
             if rating >= 8.0:
                 score += 40
-                reasons.append("Critically acclaimed")
+                reasons.append('Critically acclaimed')
             elif rating >= 7.5:
                 score += 25
-            
-            # Slight genre overlap (not too similar, not too different)
-            overlap = len(movie_genres & liked_genres) if liked_genres else 0
             if liked_genres:
-                if overlap == 1:  # One genre in common
+                if overlap == 0:
                     score += 20
-                elif overlap == 0:  # Completely different
+                    reasons.append('New genre for you')
+                elif overlap == 1:
                     score += 10
-                    reasons.append("New genre for you")
-            
-            # Underrated factor (high rating, lower box office)
-            box_office = movie.get("box_office_millions", 0) or 0
+            box_office = 0
             if rating >= 7.5 and box_office < 50:
-                score += 20
-                reasons.append("Hidden gem")
-            
-            # Older classics the user might have missed
-            year = movie.get("year", 2000)
-            if year < 1990 and rating >= 8.0:
-                score += 15
-                reasons.append("Classic")
-            
-            if score >= 35:
-                reason_str = reasons[0] if reasons else "Discovery pick"
-                if len(reasons) > 1:
-                    reason_str += f" • {reasons[1]}"
-                
+                score += 10
+                reasons.append('Hidden gem')
+            if score >= 30:
+                reason_str = reasons[0] if reasons else 'Discovery pick'
                 candidates.append({
-                    "movie": movie,
-                    "score": min(score, 100),
-                    "reason": reason_str
+                    'movie': {
+                        'id': r.get('id'),
+                        'name': r.get('title'),
+                        'year': int((r.get('release_date') or '0000')[:4]) if r.get('release_date') else 0,
+                        'category': 'TMDB',
+                        'genre': ", ".join([TMDB_GENRES.get(g, 'Movie') for g in r.get('genre_ids', [])]) if r.get('genre_ids') else 'Movie',
+                        'box_office_millions': None,
+                        'rating': round(r.get('vote_average', 0), 1),
+                        'poster_url': f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+                    },
+                    'score': min(score, 100),
+                    'reason': reason_str
                 })
-        
-        # Sort by discovery score and shuffle slightly for variety
-        candidates.sort(key=lambda x: x["score"], reverse=True)
-        
+        candidates.sort(key=lambda x: x['score'], reverse=True)
         recommendations = [
             RecommendationResponse(
-                movie=MovieResponse(**item["movie"]),
-                similarity_score=item["score"],
-                match_reason=item["reason"]
+                movie=MovieResponse(**item['movie']),
+                similarity_score=item['score'],
+                match_reason=item['reason']
             )
             for item in candidates[:limit]
         ]
-        
         return RecommendationsResponse(
             recommendations=recommendations,
-            based_on={"mode": "discovery", "focus": "hidden gems and acclaimed films"},
+            based_on={'mode': 'tmdb_discovery'},
             total_available=len(recommendations)
         )
-        
     except Exception as e:
-        logger.exception("Error generating discovery recommendations")
+        logger.exception("Error generating TMDB discovery recommendations")
         raise HTTPException(status_code=500, detail="Internal error")
 
 @app.exception_handler(404)
