@@ -994,6 +994,143 @@ async def get_similar_movies_endpoint(
         logger.exception("Error getting similar movies")
         raise HTTPException(status_code=500, detail="Internal error")
 
+
+@app.get("/api/recommend/by-title", response_model=RecommendationsResponse)
+@limiter.limit("30/minute")
+async def recommend_by_title(
+    request: Request,
+    title: str = Query(..., description="Movie title to base recommendations on"),
+    top_n: int = Query(8, ge=1, le=50)
+):
+    """
+    Recommend movies based on a provided movie title. This endpoint is resilient:
+    - Attempts to match the title against the local dataset (fast, offline).
+    - If no local match is found and TMDB is configured, falls back to TMDB search
+      and uses TMDB's recommendations for that title.
+    """
+    try:
+        if not title or not title.strip():
+            raise HTTPException(status_code=400, detail="Title is required")
+
+        # Try local dataset first using existing search/fuzzy matching
+        candidates = find_matches(query_text=title, max_results=10, enable_fuzzy=True)
+        if candidates:
+            base_movie = candidates[0]
+            similar = get_similar_movies(base_movie, limit=top_n)
+
+            recommendations = [
+                RecommendationResponse(
+                    movie=MovieResponse(**item["movie"]),
+                    similarity_score=item["score"],
+                    match_reason=item["reason"]
+                )
+                for item in similar
+            ]
+
+            return RecommendationsResponse(
+                recommendations=recommendations,
+                based_on={
+                    "query": title,
+                    "matched_title": base_movie.get("name"),
+                    "matched_year": base_movie.get("year"),
+                    "source": "local"
+                },
+                total_available=len(recommendations)
+            )
+
+        # No local match — fall back to TMDB if available
+        if not TMDB_API_KEY:
+            raise HTTPException(status_code=404, detail="Base movie not found in local dataset and TMDB not configured")
+
+        # Search TMDB for the title
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            try:
+                search_resp = await client.get("https://api.themoviedb.org/3/search/movie",
+                                               params={"api_key": TMDB_API_KEY, "query": title, "page": 1})
+            except Exception:
+                logger.exception("Failed to reach TMDB search endpoint for title=%s", title)
+                raise HTTPException(status_code=502, detail="Failed to reach TMDB")
+
+        if search_resp.status_code != 200:
+            logger.warning("TMDB search failed for '%s' with status %s", title, search_resp.status_code)
+            raise HTTPException(status_code=502, detail="TMDB search failed")
+
+        try:
+            results = search_resp.json().get("results", [])
+        except ValueError:
+            logger.warning("TMDB returned invalid JSON for search '%s'", title)
+            raise HTTPException(status_code=502, detail="Invalid TMDB response")
+
+        if not results:
+            raise HTTPException(status_code=404, detail="Movie not found on TMDB")
+
+        movie0 = results[0]
+        tmdb_id = movie0.get("id")
+
+        # Fetch TMDB recommendations for the found movie
+        rec_cache_key = f"tmdb_rec_fallback_{tmdb_id}_{top_n}"
+        cached = cache.get(rec_cache_key)
+        if cached is not None:
+            return RecommendationsResponse(
+                recommendations=[RecommendationResponse(movie=MovieResponse(**m), similarity_score=m.get('rating') or 0.0, match_reason='TMDB recommendation') for m in cached],
+                based_on={"query": title, "matched_title": movie0.get("title"), "source": "tmdb"},
+                total_available=len(cached)
+            )
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                rec_resp = await client.get(f"https://api.themoviedb.org/3/movie/{tmdb_id}/recommendations",
+                                            params={"api_key": TMDB_API_KEY, "page": 1})
+            except Exception:
+                logger.exception("Failed to fetch TMDB recommendations for id=%s", tmdb_id)
+                raise HTTPException(status_code=502, detail="Failed to fetch TMDB recommendations")
+
+        if rec_resp.status_code != 200:
+            logger.warning("TMDB recommendations failed for id=%s with status=%s", tmdb_id, rec_resp.status_code)
+            raise HTTPException(status_code=502, detail="TMDB recommendations failed")
+
+        try:
+            raw_recs = rec_resp.json().get("results", [])[:top_n]
+        except ValueError:
+            logger.warning("Invalid JSON in TMDB recommendations for id=%s", tmdb_id)
+            raise HTTPException(status_code=502, detail="Invalid TMDB response")
+
+        formatted = []
+        for r in raw_recs:
+            formatted.append({
+                "id": r.get("id"),
+                "name": r.get("title"),
+                "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+                "category": "TMDB",
+                "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
+                "box_office_millions": None,
+                "rating": round(r.get("vote_average", 0), 1),
+                "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+            })
+
+        cache.set(rec_cache_key, formatted, expire=86400)
+
+        recommendations = [
+            RecommendationResponse(
+                movie=MovieResponse(**m),
+                similarity_score=m.get('rating') or 0.0,
+                match_reason="TMDB recommendation"
+            )
+            for m in formatted
+        ]
+
+        return RecommendationsResponse(
+            recommendations=recommendations,
+            based_on={"query": title, "matched_title": movie0.get("title"), "source": "tmdb"},
+            total_available=len(recommendations)
+        )
+
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error in recommend_by_title endpoint")
+        raise HTTPException(status_code=500, detail="Internal error")
+
 @app.get("/api/recommendations", response_model=RecommendationsResponse)
 @limiter.limit("30/minute")
 async def get_personalized_recommendations(
