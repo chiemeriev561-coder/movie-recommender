@@ -424,24 +424,28 @@ async def root(request: Request):
 @app.get("/api/movies/trending")
 @limiter.limit("20/minute")
 async def get_trending_movies(request: Request, genre: Optional[str] = Query(None)):
-    """Fetch trending movies. Returns 10 by default, or filtered results."""
+    """Fetch trending movies. Returns 10 by default, or filtered results, with caching"""
     user_ip = request.client.host if request.client else "unknown"
     
     if genre:
         add_user_genre(user_ip, genre)
-    
-    trending_data = await fetch_trending_from_tmdb()
-    
+
+    cache_key = f"trending_v1"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        trending_data = cached
+    else:
+        trending_data = await fetch_trending_from_tmdb()
+        # Cache for 30 minutes
+        cache.set(cache_key, trending_data, expire=1800)
+
     # Filter by genre if provided
     if genre:
         g_lower = genre.lower()
-        trending_data = [m for m in trending_data if g_lower in m['genre'].lower()]
+        trending_data = [m for m in trending_data if g_lower in (m.get('genre') or '').lower()]
     else:
         # Initial view: show only top 10
         trending_data = trending_data[:10]
-        
-    engagement_count = len(get_user_genres_set(user_ip))
-    is_unlocked = engagement_count >= 5
 
     # Return simple list for frontend compatibility
     return [MovieResponse(**m) for m in trending_data]
@@ -488,9 +492,15 @@ async def search_movies(
 @app.get("/api/movies/featured", response_model=FeaturedResponse)
 @limiter.limit("20/minute")
 async def get_featured_movies(request: Request):
-    """Featured: TMDB popular (latest) and top rated (old favorites)"""
+    """Featured: TMDB popular (latest) and top rated (old favorites) with caching"""
     if not TMDB_API_KEY:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="TMDB integration is not configured")
+
+    cache_key = "featured_popular_top_v1"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return FeaturedResponse(latest_movies=[MovieResponse(**m) for m in cached.get("latest", [])], old_movies=[MovieResponse(**m) for m in cached.get("old", [])])
+
     async with httpx.AsyncClient(timeout=8.0) as client:
         try:
             pop_resp = await client.get("https://api.themoviedb.org/3/movie/popular", params={"api_key": TMDB_API_KEY, "page": 1})
@@ -535,6 +545,9 @@ async def get_featured_movies(request: Request):
             "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
         })
 
+    # Cache for 1 hour
+    cache.set(cache_key, {"latest": latest_movies, "old": old_movies}, expire=3600)
+
     return FeaturedResponse(latest_movies=[MovieResponse(**m) for m in latest_movies], old_movies=[MovieResponse(**m) for m in old_movies])
 
 @app.get("/api/movies/top", response_model=List[MovieResponse])
@@ -542,6 +555,12 @@ async def get_featured_movies(request: Request):
 async def get_top_movies(request: Request, limit: int = Query(10, ge=1, le=50)):
     if not TMDB_API_KEY:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="TMDB integration is not configured")
+
+    cache_key = f"top_rated_{limit}_v1"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return [MovieResponse(**m) for m in cached]
+
     async with httpx.AsyncClient(timeout=8.0) as client:
         try:
             resp = await client.get("https://api.themoviedb.org/3/movie/top_rated", params={"api_key": TMDB_API_KEY, "page": 1})
@@ -559,7 +578,7 @@ async def get_top_movies(request: Request, limit: int = Query(10, ge=1, le=50)):
 
     top_movies = []
     for r in raw:
-        top_movies.append(MovieResponse(**{
+        top_movies.append({
             "id": r.get("id"),
             "name": r.get("title"),
             "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
@@ -569,9 +588,12 @@ async def get_top_movies(request: Request, limit: int = Query(10, ge=1, le=50)):
             "box_office_millions": None,
             "rating": round(r.get("vote_average", 0), 1),
             "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
-        }))
+        })
 
-    return top_movies
+    # Cache for 1 hour
+    cache.set(cache_key, top_movies, expire=3600)
+
+    return [MovieResponse(**m) for m in top_movies]
 
 @app.get("/api/movies/{movie_id}/trailer", response_model=TrailerResponse)
 @limiter.limit("20/minute")
