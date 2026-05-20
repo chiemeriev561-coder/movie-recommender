@@ -169,6 +169,7 @@ class MovieResponse(BaseModel):
     year: int
     category: str
     genre: str
+    description: Optional[str] = None
     box_office_millions: Optional[float] = None
     rating: float
     poster_url: Optional[str] = None
@@ -271,6 +272,7 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
             "id": m.get("id"),
             "name": m.get("title"),
             "year": int(m.get("release_date", "0000")[:4]) if m.get("release_date") else 0,
+            "description": m.get("overview"),
             "rating": round(m.get("vote_average", 0), 1),
             "poster_url": f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get("poster_path") else None,
             "genre": ", ".join(genre_names) if genre_names else "Movie",
@@ -370,6 +372,7 @@ async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10) -> List[Dict[s
             "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
             "box_office_millions": None,
             "rating": round(r.get("vote_average", 0), 1),
+            "description": r.get("overview"),
             "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
         })
 
@@ -449,6 +452,7 @@ async def search_movies(
     request: Request,
     q: Optional[str] = Query(None, description="Search query"),
     genre: Optional[str] = Query(None),
+    year: Optional[int] = Query(None, description="Release year to filter"),
     max_results: int = Query(60, ge=1, le=200)
 ):
     """
@@ -473,13 +477,101 @@ async def search_movies(
         name_match = not q_lower or q_lower in m.get('name', '').lower()
         genre_match = not g_lower or g_lower in m.get('genre', '').lower()
         q_genre_match = q_lower and q_lower in m.get('genre', '').lower()
+        year_match = (year is None) or (m.get('year') == year)
 
-        if (name_match or q_genre_match) and genre_match:
+        if (name_match or q_genre_match) and genre_match and year_match:
             tmdb_matches.append(MovieResponse(**m))
 
     # Return TMDB-only matches
     return tmdb_matches[:max_results]
 
+@app.get("/api/movies/featured", response_model=FeaturedResponse)
+@limiter.limit("20/minute")
+async def get_featured_movies(request: Request):
+    """Featured: TMDB popular (latest) and top rated (old favorites)"""
+    if not TMDB_API_KEY:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="TMDB integration is not configured")
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        try:
+            pop_resp = await client.get("https://api.themoviedb.org/3/movie/popular", params={"api_key": TMDB_API_KEY, "page": 1})
+            top_resp = await client.get("https://api.themoviedb.org/3/movie/top_rated", params={"api_key": TMDB_API_KEY, "page": 1})
+        except Exception:
+            logger.exception("Failed to fetch TMDB for featured/top")
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch TMDB data")
+
+    if pop_resp.status_code != 200 or top_resp.status_code != 200:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="TMDB returned error")
+
+    try:
+        pop_results = pop_resp.json().get("results", [])[:10]
+        top_results = top_resp.json().get("results", [])[:10]
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Invalid TMDB response")
+
+    latest_movies = []
+    old_movies = []
+    for r in pop_results:
+        latest_movies.append({
+            "id": r.get("id"),
+            "name": r.get("title"),
+            "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+            "description": r.get("overview"),
+            "category": "Trending",
+            "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
+            "box_office_millions": None,
+            "rating": round(r.get("vote_average", 0), 1),
+            "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+        })
+    for r in top_results:
+        old_movies.append({
+            "id": r.get("id"),
+            "name": r.get("title"),
+            "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+            "description": r.get("overview"),
+            "category": "Top",
+            "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
+            "box_office_millions": None,
+            "rating": round(r.get("vote_average", 0), 1),
+            "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+        })
+
+    return FeaturedResponse(latest_movies=[MovieResponse(**m) for m in latest_movies], old_movies=[MovieResponse(**m) for m in old_movies])
+
+@app.get("/api/movies/top", response_model=List[MovieResponse])
+@limiter.limit("20/minute")
+async def get_top_movies(request: Request, limit: int = Query(10, ge=1, le=50)):
+    if not TMDB_API_KEY:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="TMDB integration is not configured")
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        try:
+            resp = await client.get("https://api.themoviedb.org/3/movie/top_rated", params={"api_key": TMDB_API_KEY, "page": 1})
+        except Exception:
+            logger.exception("Failed to fetch TMDB top movies")
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch TMDB data")
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="TMDB returned error")
+
+    try:
+        raw = resp.json().get("results", [])[:limit]
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Invalid TMDB response")
+
+    top_movies = []
+    for r in raw:
+        top_movies.append(MovieResponse(**{
+            "id": r.get("id"),
+            "name": r.get("title"),
+            "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+            "description": r.get("overview"),
+            "category": "Top",
+            "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
+            "box_office_millions": None,
+            "rating": round(r.get("vote_average", 0), 1),
+            "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+        }))
+
+    return top_movies
 
 @app.get("/api/movies/{movie_id}/trailer", response_model=TrailerResponse)
 @limiter.limit("20/minute")
@@ -714,6 +806,7 @@ async def get_movie_details(request: Request, name: str, year: int):
             "id": m.get("id"),
             "name": m.get("title"),
             "year": int((m.get("release_date") or "0000")[:4]) if m.get("release_date") else 0,
+            "description": m.get("overview"),
             "category": "TMDB",
             "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in m.get("genre_ids", [])]) if m.get("genre_ids") else "Movie",
             "box_office_millions": None,
@@ -861,6 +954,7 @@ async def recommend_by_title(
                 "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
                 "box_office_millions": None,
                 "rating": round(r.get("vote_average", 0), 1),
+                "description": r.get("overview"),
                 "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
             })
 
@@ -974,6 +1068,7 @@ async def get_personalized_recommendations(
                         "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
                         "box_office_millions": None,
                         "rating": round(r.get("vote_average", 0), 1),
+                        "description": r.get("overview"),
                         "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
                     })
 
@@ -1076,8 +1171,10 @@ async def get_discovery_recommendations(
                         'genre': ", ".join([TMDB_GENRES.get(g, 'Movie') for g in r.get('genre_ids', [])]) if r.get('genre_ids') else 'Movie',
                         'box_office_millions': None,
                         'rating': round(r.get('vote_average', 0), 1),
+                        'description': r.get('overview'),
                         'poster_url': f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
                     },
+
                     'score': min(score, 100),
                     'reason': reason_str
                 })
