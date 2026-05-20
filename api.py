@@ -41,7 +41,6 @@ limiter = Limiter(key_func=get_remote_address)
 
 # Import the existing movie recommender functionality
 from movie_recommender import (
-    movies, find_matches, get_available_genres, get_available_categories,
     add_favorite, remove_favorite, get_favorite_movies, get_favorite_entries,
     load_favorites, save_favorites, format_movie, serialize_movies,
     expand_dataset_if_needed
@@ -132,7 +131,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Movie Recommender API")
     load_favorites(FAVORITES_FILE)
     logger.info(f"Loaded {len(get_favorite_entries())} favorites from {FAVORITES_FILE}")
-    logger.info(f"API ready with {len(movies)} movies in dataset")
+    logger.info("API ready")
     yield
     logger.info("Shutting down Movie Recommender API")
 
@@ -239,7 +238,8 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
         return cached_result
 
     if not TMDB_API_KEY:
-        return sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:50]
+        # TMDB is required for trending data; return empty list when API key not configured
+        return []
 
     all_results = []
     async with httpx.AsyncClient(timeout=7.0) as client:
@@ -257,7 +257,8 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
                 break
     
     if not all_results:
-        return sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:50]
+        # No TMDB results available for trending; return empty list
+        return []
 
     # Deduplicate by TMDB ID
     unique_results = {r['id']: r for r in all_results}.values()
@@ -393,256 +394,10 @@ def save_user_preferences(user_ip: str, prefs: Dict[str, Any]) -> None:
     """Save user preferences to disk cache."""
     cache.set(f"prefs_{user_ip}", prefs, expire=86400 * 30)
 
-def get_user_favorite_movies(user_ip: str) -> List[Dict[str, Any]]:
-    """Return favorite movie records associated with a specific user."""
-    favorite_keys = get_user_favorite_keys(user_ip)
-    if not favorite_keys:
-        return []
 
-    movie_lookup = {
-        (movie.get("name"), movie.get("year")): movie
-        for movie in movies
-    }
-    return [
-        movie_lookup[key]
-        for key in favorite_keys
-        if key in movie_lookup
-    ]
 
-def calculate_content_similarity(
-    movie: Dict[str, Any],
-    user_prefs: Dict[str, Any]
-) -> tuple[float, str]:
-    """
-    Calculate content-based similarity score between a movie and user preferences.
-    Returns (score, reason) tuple.
-    """
-    score = 0.0
-    reasons = []
-    
-    # Genre similarity (0-40 points)
-    movie_genres = set()
-    if movie.get("genre"):
-        movie_genres.update(g.strip().lower() for g in movie["genre"].split("/"))
-    if movie.get("all_genres"):
-        movie_genres.update(g.strip().lower() for g in movie.get("all_genres", []))
-    
-    liked_genres = user_prefs.get("liked_genres", set())
-    if liked_genres and movie_genres:
-        genre_overlap = len(movie_genres & liked_genres)
-        genre_score = min(genre_overlap * 15, 40)
-        if genre_score > 0:
-            score += genre_score
-            top_genre = list(movie_genres & liked_genres)[0].title() if (movie_genres & liked_genres) else ""
-            reasons.append(f"Matches your taste in {top_genre}")
-    
-    # Category similarity (0-20 points)
-    movie_category = movie.get("category", "").lower()
-    liked_categories = user_prefs.get("liked_categories", set())
-    if liked_categories and movie_category in liked_categories:
-        score += 20
-        reasons.append(f"{movie.get('category', 'Similar')} film")
-    
-    # Rating alignment (0-20 points)
-    movie_rating = movie.get("rating", 0)
-    preferred_rating = user_prefs.get("rating_preference", 7.0)
-    if movie_rating > 0:
-        rating_diff = abs(movie_rating - preferred_rating)
-        if rating_diff < 1.0:
-            score += 20
-            reasons.append("Highly rated")
-        elif rating_diff < 2.0:
-            score += 10
-    
-    # Year/decade alignment (0-15 points)
-    movie_year = movie.get("year", 2000)
-    year_range = user_prefs.get("year_range", {"min": 1980, "max": 2024})
-    if year_range["min"] <= movie_year <= year_range["max"]:
-        score += 15
-    elif abs(movie_year - (year_range["min"] + year_range["max"]) // 2) < 15:
-        score += 8
-    
-    # Box office bonus (0-5 points) - popularity signal
-    box_office = movie.get("box_office_millions", 0) or 0
-    if box_office > 500:
-        score += 5
-        if not any("rated" in r for r in reasons):
-            reasons.append("Popular hit")
-    elif box_office > 100:
-        score += 2
-    
-    # Normalize score to 0-100
-    final_score = min(round(score), 100)
-    
-    # Build concise match reason
-    if reasons:
-        match_reason = reasons[0]
-        if len(reasons) > 1:
-            match_reason += f" • {reasons[1]}"
-    else:
-        match_reason = "Recommended for you"
-    
-    return final_score, match_reason
 
-def update_user_preferences_from_favorites(user_ip: str) -> None:
-    """Update user preferences based on their favorite movies."""
-    prefs = get_user_preferences(user_ip)
-    fav_movies = get_user_favorite_movies(user_ip)
-    prefs["favorite_movies"] = fav_movies
 
-    prefs["viewed_movies"] = set()
-    # Merge existing preferences instead of overwriting completely
-    liked_genres = prefs.get("liked_genres", set())
-    liked_categories = prefs.get("liked_categories", set())
-    
-    if not fav_movies:
-        save_user_preferences(user_ip, prefs)
-        return
-    
-    # Extract genres from favorites
-    ratings = []
-    years = []
-    
-    for movie in fav_movies:
-        # Genres
-        if movie.get("genre"):
-            liked_genres.update(g.strip().lower() for g in movie["genre"].split("/"))
-        if movie.get("all_genres"):
-            liked_genres.update(g.strip().lower() for g in movie.get("all_genres", []))
-        
-        # Categories
-        if movie.get("category"):
-            liked_categories.add(movie["category"].lower())
-        
-        # Ratings and years for averaging
-        if movie.get("rating"):
-            ratings.append(movie["rating"])
-        if movie.get("year"):
-            years.append(movie["year"])
-        
-        # Track viewed movies
-        prefs["viewed_movies"].add((movie.get("name"), movie.get("year")))
-    
-    prefs["liked_genres"] = liked_genres
-    prefs["liked_categories"] = liked_categories
-    
-    if ratings:
-        prefs["rating_preference"] = sum(ratings) / len(ratings)
-    
-    if years:
-        avg_year = sum(years) / len(years)
-        prefs["year_range"] = {
-            "min": int(avg_year - 20),
-            "max": int(avg_year + 10)
-        }
-    
-    save_user_preferences(user_ip, prefs)
-
-def get_content_recommendations(
-    user_ip: str,
-    limit: int = 10,
-    exclude_viewed: bool = True
-) -> List[Dict[str, Any]]:
-    """Generate content-based recommendations for a user."""
-    prefs = get_user_preferences(user_ip)
-    
-    # Refresh from favorites
-    update_user_preferences_from_favorites(user_ip)
-    
-    # Get candidate movies (combine local and TMDB if available)
-    candidates = movies.copy()
-    
-    scored_movies = []
-    for movie in candidates:
-        # Skip already viewed movies if requested
-        if exclude_viewed:
-            movie_key = (movie.get("name"), movie.get("year"))
-            if movie_key in prefs["viewed_movies"]:
-                continue
-        
-        score, reason = calculate_content_similarity(movie, prefs)
-        if score > 0:
-            scored_movies.append({
-                "movie": movie,
-                "score": score,
-                "reason": reason
-            })
-    
-    # Sort by score descending
-    scored_movies.sort(key=lambda x: x["score"], reverse=True)
-    
-    return scored_movies[:limit]
-
-def get_similar_movies(
-    target_movie: Dict[str, Any],
-    limit: int = 8,
-    exclude_same: bool = True
-) -> List[Dict[str, Any]]:
-    """Find movies similar to a target movie based on content features."""
-    target_genres = set()
-    if target_movie.get("genre"):
-        target_genres.update(g.strip().lower() for g in target_movie["genre"].split("/"))
-    if target_movie.get("all_genres"):
-        target_genres.update(g.strip().lower() for g in target_movie.get("all_genres", []))
-    
-    target_category = target_movie.get("category", "").lower()
-    target_year = target_movie.get("year", 2000)
-    target_rating = target_movie.get("rating", 0)
-    
-    scored = []
-    for movie in movies:
-        # Skip the same movie
-        if exclude_same:
-            if (movie.get("name") == target_movie.get("name") and 
-                movie.get("year") == target_year):
-                continue
-        
-        score = 0
-        reasons = []
-        
-        # Genre overlap (most important)
-        movie_genres = set()
-        if movie.get("genre"):
-            movie_genres.update(g.strip().lower() for g in movie["genre"].split("/"))
-        if movie.get("all_genres"):
-            movie_genres.update(g.strip().lower() for g in movie.get("all_genres", []))
-        
-        genre_overlap = len(target_genres & movie_genres)
-        if genre_overlap > 0:
-            score += genre_overlap * 25
-            common = list(target_genres & movie_genres)[0].title()
-            reasons.append(f"{common}")
-        
-        # Same category
-        if movie.get("category", "").lower() == target_category:
-            score += 20
-            reasons.append(f"{target_movie.get('category', 'Same category')}")
-        
-        # Year proximity
-        year_diff = abs(movie.get("year", 2000) - target_year)
-        if year_diff <= 5:
-            score += 15
-        elif year_diff <= 10:
-            score += 8
-        
-        # Rating proximity
-        rating_diff = abs(movie.get("rating", 0) - target_rating)
-        if rating_diff < 1.0:
-            score += 15
-            reasons.append("Similar rating")
-        elif rating_diff < 2.0:
-            score += 8
-        
-        if score > 10:  # Minimum threshold
-            reason_str = f"Because you liked {target_movie.get('name')} • {', '.join(reasons[:2])}"
-            scored.append({
-                "movie": movie,
-                "score": min(score, 100),
-                "reason": reason_str
-            })
-    
-    scored.sort(key=lambda x: x["score"], reverse=True)
-    return scored[:limit]
 
 @app.api_route("/ping", methods=["GET", "HEAD"])
 async def ping():
@@ -660,7 +415,6 @@ async def root(request: Request):
         "version": "1.0.0",
         "docs": "/docs",
         "redoc": "/redoc",
-        "total_movies": len(movies),
         "favorites_count": len(get_favorite_entries())
     }
 
@@ -707,9 +461,6 @@ async def search_movies(
     if genre:
         add_user_genre(user_ip, genre)
     
-    engagement_count = len(get_user_genres_set(user_ip))
-    is_unlocked = engagement_count >= 5
-    
     if not q and not genre:
         return []
 
@@ -722,60 +473,13 @@ async def search_movies(
         name_match = not q_lower or q_lower in m.get('name', '').lower()
         genre_match = not g_lower or g_lower in m.get('genre', '').lower()
         q_genre_match = q_lower and q_lower in m.get('genre', '').lower()
-        
+
         if (name_match or q_genre_match) and genre_match:
             tmdb_matches.append(MovieResponse(**m))
 
-    if not is_unlocked:
-        return tmdb_matches[:max_results]
-    else:
-        # Search the Classic Vault (CSV)
-        csv_matches = find_matches(
-            query_text=q or "",
-            max_results=max_results,
-            genre=genre
-        )
-        csv_formatted = [MovieResponse(**m) for m in csv_matches]
-        
-        # Merge results
-        seen = {(m.name, m.year) for m in tmdb_matches}
-        unique_csv = [m for m in csv_formatted if (m.name, m.year) not in seen]
-        
-        return (tmdb_matches + unique_csv)[:max_results]
+    # Return TMDB-only matches
+    return tmdb_matches[:max_results]
 
-@app.get("/api/movies/featured", response_model=FeaturedResponse)
-@limiter.limit("20/minute")
-async def get_featured_movies(request: Request):
-    """Provide recent and older movies for frontend landing-page sections."""
-    try:
-        latest = sorted(movies, key=lambda x: x.get("year", 0), reverse=True)[:10]
-        oldies = sorted(movies, key=lambda x: x.get("year", 0))[:10]
-        return {
-            "latest_movies": [MovieResponse(**movie) for movie in latest],
-            "old_movies": [MovieResponse(**movie) for movie in oldies],
-        }
-    except Exception as e:
-        logger.exception("Error getting featured movies")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred fetching featured datasets"
-        )
-
-@app.get("/api/movies/top", response_model=List[MovieResponse])
-@limiter.limit("20/minute")
-async def get_top_movies(
-    request: Request,
-    limit: int = Query(10, ge=1, le=50)
-):
-    try:
-        top_movies = sorted(movies, key=lambda x: x.get('rating', 0), reverse=True)[:limit]
-        return [MovieResponse(**movie) for movie in top_movies]
-    except Exception as e:
-        logger.exception("Error getting top movies")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while retrieving top movies"
-        )
 
 @app.get("/api/movies/{movie_id}/trailer", response_model=TrailerResponse)
 @limiter.limit("20/minute")
@@ -901,7 +605,8 @@ async def get_movie_recommendations(request: Request, movie_id: int):
 @limiter.limit("20/minute")
 async def get_genres(request: Request):
     try:
-        return [GenreResponse(**genre) for genre in get_available_genres()]
+        # Return TMDB-known genres (counts not tracked locally)
+        return [GenreResponse(genre=name, count=0) for _id, name in TMDB_GENRES.items()]
     except Exception as e:
         logger.exception("Error getting genres")
         raise HTTPException(status_code=500, detail="Internal error")
@@ -910,7 +615,8 @@ async def get_genres(request: Request):
 @limiter.limit("20/minute")
 async def get_categories(request: Request):
     try:
-        return [CategoryResponse(**category) for category in get_available_categories()]
+        # No local categories available when using TMDB-only mode
+        return []
     except Exception as e:
         logger.exception("Error getting categories")
         raise HTTPException(status_code=500, detail="Internal error")
@@ -969,7 +675,7 @@ async def health_check(request: Request):
     refresh_favorites_state()
     return {
         "status": "healthy",
-        "movies_count": len(movies),
+        "movies_count": None,
         "favorites_count": len(get_favorite_entries()),
         "csv_integration": _HAS_CSV_STATS,
         "tmdb_integration": bool(TMDB_API_KEY)
@@ -981,10 +687,10 @@ async def get_statistics(request: Request):
     try:
         refresh_favorites_state()
         stats = {
-            "total_movies": len(movies),
+            "total_movies": None,
             "favorites_count": len(get_favorite_entries()),
-            "available_genres": len(get_available_genres()),
-            "available_categories": len(get_available_categories())
+            "available_genres": len(TMDB_GENRES),
+            "available_categories": 0
         }
         if _HAS_CSV_STATS:
             csv_stats = get_csv_statistics()
@@ -998,10 +704,23 @@ async def get_statistics(request: Request):
 @limiter.limit("30/minute")
 async def get_movie_details(request: Request, name: str, year: int):
     try:
-        for movie in movies:
-            if movie.get('name', '').lower() == name.lower() and movie.get('year') == year:
-                return MovieResponse(**movie)
-        raise HTTPException(status_code=404, detail="Movie not found")
+        if not TMDB_API_KEY:
+            raise HTTPException(status_code=503, detail="TMDB integration is not configured")
+        results = await tmdb_search_movie(name, year=year, limit=5)
+        if not results:
+            raise HTTPException(status_code=404, detail="Movie not found on TMDB")
+        m = results[0]
+        movie = {
+            "id": m.get("id"),
+            "name": m.get("title"),
+            "year": int((m.get("release_date") or "0000")[:4]) if m.get("release_date") else 0,
+            "category": "TMDB",
+            "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in m.get("genre_ids", [])]) if m.get("genre_ids") else "Movie",
+            "box_office_millions": None,
+            "rating": round(m.get("vote_average", 0), 1),
+            "poster_url": f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get('poster_path') else None
+        }
+        return MovieResponse(**movie)
     except HTTPException:
         raise
     except Exception as e:
@@ -1078,35 +797,6 @@ async def recommend_by_title(
         if not title or not title.strip():
             raise HTTPException(status_code=400, detail="Title is required")
 
-        # Try local dataset first using existing search/fuzzy matching
-        candidates = find_matches(query_text=title, max_results=10, enable_fuzzy=True)
-        if candidates:
-            base_movie = candidates[0]
-            similar = get_similar_movies(base_movie, limit=top_n)
-
-            recommendations = [
-                RecommendationResponse(
-                    movie=MovieResponse(**item["movie"]),
-                    similarity_score=item["score"],
-                    match_reason=item["reason"]
-                )
-                for item in similar
-            ]
-
-            return RecommendationsResponse(
-                recommendations=recommendations,
-                based_on={
-                    "query": title,
-                    "matched_title": base_movie.get("name"),
-                    "matched_year": base_movie.get("year"),
-                    "source": "local"
-                },
-                total_available=len(recommendations)
-            )
-
-        # No local match — fall back to TMDB if available
-        if not TMDB_API_KEY:
-            raise HTTPException(status_code=404, detail="Base movie not found in local dataset and TMDB not configured")
 
         # Search TMDB for the title
         async with httpx.AsyncClient(timeout=8.0) as client:

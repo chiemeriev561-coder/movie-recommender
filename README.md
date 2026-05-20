@@ -67,6 +67,12 @@ For production deployment:
 gunicorn api:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
 ```
 
+After deploying, remove the diskcache contents to avoid shipping local cache state:
+
+```bash
+rm -rf .api_cache/*
+```
+
 ### Start the Interactive CLI
 
 ```bash
