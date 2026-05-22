@@ -194,6 +194,11 @@ class FeaturedResponse(BaseModel):
 class TrailerResponse(BaseModel):
     youtube_key: str
 
+class StreamResponse(BaseModel):
+    movie_id: str
+    stream_url: str
+    provider: str
+
 class TMDBRecommendationItem(BaseModel):
     id: Optional[int] = None
     name: Optional[str] = None
@@ -396,6 +401,13 @@ def get_user_preferences(user_ip: str) -> Dict[str, Any]:
 def save_user_preferences(user_ip: str, prefs: Dict[str, Any]) -> None:
     """Save user preferences to disk cache."""
     cache.set(f"prefs_{user_ip}", prefs, expire=86400 * 30)
+
+def update_user_preferences_from_favorites(user_ip: str) -> None:
+    """Update user preferences based on their favorite movies."""
+    prefs = get_user_preferences(user_ip)
+    fav_keys = get_user_favorite_keys(user_ip)
+    prefs["viewed_movies"] = {(name, year) for name, year in fav_keys}
+    save_user_preferences(user_ip, prefs)
 
 
 
@@ -650,6 +662,24 @@ async def get_movie_trailer(request: Request, movie_id: int):
 
     cache.set(cache_key, trailer["key"], expire=86400 * 7)  # Cache trailers for 7 days
     return TrailerResponse(youtube_key=trailer["key"])
+
+@app.get("/api/movies/{movie_id}/stream", response_model=StreamResponse)
+@limiter.limit("30/minute")
+async def get_movie_stream_url(request: Request, movie_id: str):
+    """
+    Returns the high-speed streaming embed URL for a given TMDB ID.
+    This bypasses the need to host video files locally.
+    """
+    clean_id = str(movie_id).strip()
+    
+    # We use a reliable public embed source that indexes videos by TMDB ID
+    stream_url = f"https://vidsrc.xyz/embed/movie/{clean_id}"
+    
+    return StreamResponse(
+        movie_id=clean_id,
+        stream_url=stream_url,
+        provider="Phlox High-Speed Stream Network"
+    )
 
 @app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)
 @limiter.limit("20/minute")

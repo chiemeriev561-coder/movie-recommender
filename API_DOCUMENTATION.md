@@ -154,7 +154,31 @@ curl "http://localhost:8000/api/movies/550/trailer"
 - `503 Service Unavailable`: `TMDB_API_KEY` is not configured
 - `502 Bad Gateway`: TMDB request failed
 
-### 5. Top Rated Movies
+### 5. Movie Streaming
+
+```
+GET /api/movies/{movie_id}/stream
+```
+
+Get the high-speed streaming embed URL for a given TMDB movie ID.
+
+**Example:**
+
+```bash
+curl "http://localhost:8000/api/movies/550/stream"
+```
+
+**Response:**
+
+```json
+{
+  "movie_id": "550",
+  "stream_url": "https://vidsrc.xyz/embed/movie/550",
+  "provider": "Phlox High-Speed Stream Network"
+}
+```
+
+### 6. Top Rated Movies
 
 ```
 GET /api/movies/top?limit=10
@@ -166,7 +190,7 @@ Get top-rated movies sorted by rating.
 
 - `limit`: Number of movies to return (1-50, default: 10)
 
-### 6. Genres
+### 7. Genres
 
 ```
 GET /api/genres
@@ -184,7 +208,7 @@ Get all available genres with movie counts.
 ]
 ```
 
-### 7. Categories
+### 8. Categories
 
 ```
 GET /api/categories
@@ -192,7 +216,7 @@ GET /api/categories
 
 Get all available categories with movie counts.
 
-### 8. Favorites Management
+### 9. Favorites Management
 
 #### Get Favorites
 
@@ -236,7 +260,7 @@ Remove a movie from favorites.
 }
 ```
 
-### 9. Movie Details
+### 10. Movie Details
 
 ```
 GET /api/movies/{name}/{year}
@@ -250,7 +274,7 @@ Get detailed information about a specific movie.
 curl "http://localhost:8000/api/movies/Inception/2010"
 ```
 
-### 10. Health Check
+### 11. Health Check
 
 ```
 GET /api/health
@@ -258,7 +282,7 @@ GET /api/health
 
 Check API health and get basic statistics.
 
-### 11. Statistics
+### 12. Statistics
 
 ```
 GET /api/statistics
@@ -290,6 +314,16 @@ Get detailed statistics about movie dataset (sourced from TMDB).
 ```json
 {
   "youtube_key": "SUXWAEX2jlg"
+}
+```
+
+### Stream Response
+
+```json
+{
+  "movie_id": "550",
+  "stream_url": "https://vidsrc.xyz/embed/movie/550",
+  "provider": "Phlox High-Speed Stream Network"
 }
 ```
 
