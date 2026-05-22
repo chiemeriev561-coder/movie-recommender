@@ -672,16 +672,13 @@ async def get_movie_stream_url(request: Request, movie_id: str):
     """
     clean_id = str(movie_id).strip()
     
-    # OPTION A: MultiEmbed Network (Highly active alternative)
-    stream_url = f"https://multiembed.mov/?video_id={clean_id}&tmdb=1"
-    
-    # OPTION B: AutoEmbed Network (Fallback alternative)
-    # stream_url = f"https://player.vidsrc.nl/embed/movie/{clean_id}"
+    # Clean, low-ad developer endpoint
+    stream_url = f"https://vidsrc.cc/v2/embed/movie/{clean_id}"
     
     return StreamResponse(
         movie_id=clean_id,
         stream_url=stream_url,
-        provider="Phlox High-Speed Stream Network"
+        provider="Phlox Premium Secure Stream"
     )
 
 @app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)

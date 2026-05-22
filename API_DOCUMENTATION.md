@@ -173,8 +173,8 @@ curl "http://localhost:8000/api/movies/550/stream"
 ```json
 {
   "movie_id": "550",
-  "stream_url": "https://multiembed.mov/?video_id=550&tmdb=1",
-  "provider": "Phlox High-Speed Stream Network"
+  "stream_url": "https://vidsrc.cc/v2/embed/movie/550",
+  "provider": "Phlox Premium Secure Stream"
 }
 ```
 
@@ -322,8 +322,8 @@ Get detailed statistics about movie dataset (sourced from TMDB).
 ```json
 {
   "movie_id": "550",
-  "stream_url": "https://multiembed.mov/?video_id=550&tmdb=1",
-  "provider": "Phlox High-Speed Stream Network"
+  "stream_url": "https://vidsrc.cc/v2/embed/movie/550",
+  "provider": "Phlox Premium Secure Stream"
 }
 ```
 
