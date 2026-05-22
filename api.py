@@ -672,8 +672,11 @@ async def get_movie_stream_url(request: Request, movie_id: str):
     """
     clean_id = str(movie_id).strip()
     
-    # We use a reliable public embed source that indexes videos by TMDB ID
-    stream_url = f"https://vidsrc.xyz/embed/movie/{clean_id}"
+    # OPTION A: MultiEmbed Network (Highly active alternative)
+    stream_url = f"https://multiembed.mov/?video_id={clean_id}&tmdb=1"
+    
+    # OPTION B: AutoEmbed Network (Fallback alternative)
+    # stream_url = f"https://player.vidsrc.nl/embed/movie/{clean_id}"
     
     return StreamResponse(
         movie_id=clean_id,

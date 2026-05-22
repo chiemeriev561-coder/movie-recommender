@@ -10,7 +10,7 @@ def test_stream_endpoint_returns_correct_embed_url():
     assert response.status_code == 200
     data = response.json()
     assert data["movie_id"] == "550"
-    assert data["stream_url"] == "https://vidsrc.xyz/embed/movie/550"
+    assert data["stream_url"] == "https://multiembed.mov/?video_id=550&tmdb=1"
     assert data["provider"] == "Phlox High-Speed Stream Network"
 
 def test_stream_endpoint_strips_movie_id():
@@ -20,4 +20,4 @@ def test_stream_endpoint_strips_movie_id():
     assert response.status_code == 200
     data = response.json()
     assert data["movie_id"] == "12345"
-    assert data["stream_url"] == "https://vidsrc.xyz/embed/movie/12345"
+    assert data["stream_url"] == "https://multiembed.mov/?video_id=12345&tmdb=1"
