@@ -1,146 +1,209 @@
 # Movie Recommender
 
-A robust movie recommendation system with a FastAPI REST API and an interactive command-line interface.
+Movie recommendation service with three entry points:
 
-**Live Demo:** [https://movie-recommender-7zqv.onrender.com/](https://movie-recommender-7zqv.onrender.com/)
+- A FastAPI backend in `api.py`
+- A CLI recommender in `movie_recommender.py`
+- An optional Go gateway in `go-gateway/` for proxying, caching, and rate limiting
 
-## Features
+## What It Does
 
-- **REST API**: FastAPI-powered endpoints for search, favorites, statistics, and TMDB trailer lookup.
-- **Interactive CLI**: Command-line tool for searching and managing favorites.
-- **Fuzzy Search**: Typo-tolerant movie searching (powered by RapidFuzz).
-- **Data Integration**: Sources recommendations and metadata exclusively from TMDB. Local CSV dataset support has been removed.
-- **Deployment Ready**: Configured for production with Gunicorn/Uvicorn and environment variables.
+- Search movies with optional fuzzy matching
+- Return trending, featured, top-rated, and recommendation results
+- Persist favorites to `favorites.json`
+- Fetch TMDB trailers, posters, and TMDB-based recommendations when `TMDB_API_KEY` is configured
+- Fall back to the local dataset for core recommendation features
 
-## API Documentation
+## Project Layout
 
-When running the server, you can access the interactive API documentation at:
+```text
+.
+├── api.py
+├── movie_recommender.py
+├── run_api.py
+├── go-gateway/
+├── tests/
+├── requirements.txt
+└── .env.template
+```
 
-- **Swagger UI**: [https://movie-recommender-7zqv.onrender.com/docs](https://movie-recommender-7zqv.onrender.com/docs)
-- **ReDoc**: [https://movie-recommender-7zqv.onrender.com/redoc](https://movie-recommender-7zqv.onrender.com/redoc)
+## Requirements
 
-## Installation
+- Python 3.12 recommended
+- TMDB API key for trailer, poster, trending, and TMDB recommendation endpoints
+- Optional: Go toolchain and Redis if you want to run the gateway
 
-Recommended: create and activate a virtual environment, then install dependencies:
+## Setup
+
+Create a virtual environment and install dependencies:
 
 ```bash
-python -m venv venv
-source venv/bin/activate    # Linux/macOS
-# or
-.\venv\Scripts\activate    # Windows
-
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Configuration
-
-Copy the template environment file and adjust as needed:
+Create your local environment file:
 
 ```bash
 cp .env.template .env
 ```
 
-Key configuration options in `.env`:
-- `PORT`: API port (default: 8000)
-- `TMDB_API_KEY`: The Movie Database API key used for trending movies and trailer lookup
-- `ALLOWED_ORIGINS`: Comma-separated CORS allowed origins
-- `ALLOWED_ORIGIN_REGEX`: Optional regex for additional allowed origins such as Lovable preview URLs
-- `FAVORITES_FILE`: Path to store favorites JSON
-(Local CSV dataset support has been removed. All recommendation and metadata endpoints now use TMDB; ensure TMDB_API_KEY is set.)
+Minimum useful config:
 
-If you want TMDB-powered posters, movie IDs, and trailers, set:
-
-```bash
-TMDB_API_KEY=your_tmdb_api_key
+```env
+TMDB_API_KEY=your_tmdb_api_key_here
+PORT=8000
+HOST=0.0.0.0
+RELOAD=false
+LOG_LEVEL=info
+FAVORITES_FILE=favorites.json
 ```
 
-## Running the Application
+Other supported config in `.env.template`:
 
-### Start the API Server
+- `MOVIES_CSV_PATH`
+- `RATINGS_CSV_PATH`
+- `ALLOWED_ORIGINS`
+- `ALLOWED_ORIGIN_REGEX`
+
+## Run The FastAPI App
+
+For local development:
 
 ```bash
 python run_api.py
 ```
 
-For production deployment:
+The API will be available at:
+
+- `http://localhost:8000/docs`
+- `http://localhost:8000/redoc`
+- `http://localhost:8000/api/health`
+
+Production command:
+
 ```bash
 gunicorn api:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
 ```
 
-After deploying, remove the diskcache contents to avoid shipping local cache state:
+This is also what the [`Procfile`](/home/victor/Documents/movie-recommender/Procfile:1) uses.
 
-```bash
-rm -rf .api_cache/*
-```
+## Run The CLI
 
-### Start the Interactive CLI
+Interactive mode:
 
 ```bash
 python movie_recommender.py --menu
 ```
 
-## Quick start (CLI)
-
-Run single queries from the command line:
+Single query examples:
 
 ```bash
-# Basic search
 python movie_recommender.py --query "Inception"
-
-# JSON output with fuzzy matching
 python movie_recommender.py --query "Incption" --fuzzy --format json
+python movie_recommender.py --genre Drama --min-rating 8 --sort-by rating
 ```
 
-## Frontend integration
+Useful CLI flags:
 
-TMDB-backed movie responses now include an optional `id` field. Use that `id` to fetch a trailer:
+- `--query`
+- `--fuzzy`
+- `--format text|json`
+- `--genre`
+- `--category`
+- `--min-rating`
+- `--year`
+- `--year-from`
+- `--year-to`
+- `--sort-by rating|box_office|year`
+- `--max-results`
+- `--list-genres`
+- `--list-categories`
+- `--menu`
+
+## Run The Go Gateway
+
+The Go gateway sits in front of FastAPI and adds:
+
+- Redis-backed rate limiting
+- Cached proxying for expensive endpoints
+- Local handling for favorites reads
+
+Default behavior:
+
+- FastAPI upstream: `http://localhost:8000`
+- Gateway port: `8080`
+- Redis address: `localhost:6379`
+
+Example:
 
 ```bash
-curl "http://localhost:8000/api/movies/550/trailer"
+cd go-gateway
+go run .
 ```
 
-Response:
+Environment variables used by the gateway:
 
-```json
-{
-  "youtube_key": "SUXWAEX2jlg"
-}
-```
+- `UPSTREAM_URL`
+- `PORT`
+- `REDIS_ADDR`
+- `REDIS_PASSWORD`
 
-Example movie payload from `/api/movies/trending` or `/api/movies/search`:
+Gateway endpoints of note:
 
-```json
-{
-  "id": 550,
-  "name": "Fight Club",
-  "year": 1999,
-  "category": "Trending",
-  "genre": "Drama",
-  "box_office_millions": null,
-  "rating": 8.4,
-  "poster_url": "https://image.tmdb.org/t/p/w500/example.jpg"
-}
-```
+- `GET /ping`
+- `GET /api/favorites`
+- `POST /api/favorites`
+- `DELETE /api/favorites`
+- cached proxy for `/api/movies/trending`, `/api/movies/search`, and `/api/movies/featured`
+
+## Main API Endpoints
+
+- `GET /api/movies/trending`
+- `GET /api/movies/search`
+- `GET /api/movies/featured`
+- `GET /api/movies/top`
+- `GET /api/movies/{movie_id}/trailer`
+- `GET /api/movies/{movie_id}/stream`
+- `GET /api/movies/{movie_id}/recommendations`
+- `GET /api/favorites`
+- `POST /api/favorites`
+- `DELETE /api/favorites`
+- `GET /api/genres`
+- `GET /api/categories`
+- `GET /api/statistics`
+- `GET /api/recommend/by-title`
+- `GET /api/recommendations`
+- `GET /api/recommendations/discovery`
+
+Detailed endpoint behavior is documented in [`API_DOCUMENTATION.md`](/home/victor/Documents/movie-recommender/API_DOCUMENTATION.md:1).
+
+## Notes On Data Sources
+
+- The core recommender ships with a built-in movie dataset.
+- If a CSV loader is available, the dataset can be expanded from CSV files.
+- TMDB is used for trailers, posters, and TMDB recommendation/trending data when configured.
+- If `TMDB_API_KEY` is missing, some TMDB-backed endpoints degrade or return empty/fallback responses depending on the endpoint.
 
 ## Tests
 
-Run the test suite to verify the application:
+Run the test suite with:
 
 ```bash
 PYTHONPATH=. python -m pytest
 ```
 
-## Dataset notes
+Test files live in [`tests/`](/home/victor/Documents/movie-recommender/tests).
 
-Local CSV dataset support has been removed. The API and recommendation engine now source movie metadata, posters, trailers and recommendations exclusively from TMDB. Make sure `TMDB_API_KEY` is configured in your `.env` for recommendation, trending, and trailer endpoints to work correctly.
+## Frontend
 
-## Contributing and License
+The README previously pointed at a frontend project. If you still use it, the related app link is:
 
-Contributions are welcome — open an issue or submit a pull request.
+- `https://cine-craft-box.lovable.app`
 
-## Cine Craft Box
+## Live Deployment
 
-Check out the full stack application here: [Cine Craft Box](https://cine-craft-box.lovable.app)
-
----
-Developed with FastAPI, Pydantic, and RapidFuzz.
+- App: `https://movie-recommender-7zqv.onrender.com/`
+- Swagger: `https://movie-recommender-7zqv.onrender.com/docs`
+- ReDoc: `https://movie-recommender-7zqv.onrender.com/redoc`
