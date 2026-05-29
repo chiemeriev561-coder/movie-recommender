@@ -601,21 +601,26 @@ func FindMatches(query string, maxResults int, enableFuzzy bool, threshold int, 
 					if t == "" {
 						continue
 					}
-					if strings.Contains(name, t) || strings.Contains(genreV, t) || strings.Contains(categoryV, t) {
+					// token-level match -> highest priority
+					isToken := false
+					for _, mt := range m.Tokens {
+						if mt == t {
+							isToken = true
+							break
+						}
+					}
+					if isToken {
 						priority = 1000
 						break
 					}
+					// startswith on name -> high priority
 					if strings.HasPrefix(name, t) {
 						priority = 900
 						break
 					}
-					for _, mt := range m.Tokens {
-						if mt == t {
-							priority = 800
-							break
-						}
-					}
-					if priority > 0 {
+					// exact substring match -> medium priority
+					if strings.Contains(name, t) || strings.Contains(genreV, t) || strings.Contains(categoryV, t) {
+						priority = 800
 						break
 					}
 				}

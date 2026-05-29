@@ -674,16 +674,16 @@ def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool
                 name = m.get('name','').lower()
                 genre_v = m.get('genre','').lower()
                 category_v = m.get('category','').lower()
-                # exact substring match -> highest priority
-                if any(t in name or t in genre_v or t in category_v for t in tokens):
+                # token-level match -> highest priority
+                if any(t in name.split() or t == genre_v or t == category_v for t in tokens):
                     matches_with_priority.append((m, 1000))
                     continue
                 # startswith on name tokens -> high priority
                 if any(name.startswith(t) for t in tokens):
                     matches_with_priority.append((m, 900))
                     continue
-                # token-level match -> medium priority
-                if any(t in name.split() for t in tokens):
+                # exact substring match -> medium priority
+                if any(t in name or t in genre_v or t in category_v for t in tokens):
                     matches_with_priority.append((m, 800))
                     continue
 

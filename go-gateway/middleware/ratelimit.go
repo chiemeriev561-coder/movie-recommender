@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -37,10 +38,10 @@ func RateLimit(rdb *redis.Client, maxRequests int, windowSecs int64) func(http.H
 			// Count requests in current window
 			countCmd := pipe.ZCard(ctx, key)
 
-			// Add current request timestamp
+			// Add current request timestamp with a unique suffix to prevent collisions
 			pipe.ZAdd(ctx, key, redis.Z{
 				Score:  float64(now),
-				Member: fmt.Sprintf("%d", now),
+				Member: fmt.Sprintf("%d-%f", now, rand.Float64()),
 			})
 
 			// Set key expiry to window size so Redis auto-cleans

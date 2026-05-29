@@ -448,8 +448,24 @@ async def get_trending_movies(request: Request, genre: Optional[str] = Query(Non
         trending_data = cached
     else:
         trending_data = await fetch_trending_from_tmdb()
-        # Cache for 30 minutes
-        cache.set(cache_key, trending_data, expire=1800)
+        if trending_data:
+            # Cache for 30 minutes
+            cache.set(cache_key, trending_data, expire=1800)
+
+    # Fall back to local dataset if TMDB returns no data
+    if not trending_data:
+        from movie_recommender import movies as local_movies
+        if genre:
+            g_lower = genre.lower()
+            fallback_data = [
+                m for m in local_movies
+                if g_lower in m.get('genre', '').lower() or any(g_lower in ag.lower() for ag in m.get('all_genres', []))
+            ]
+        else:
+            fallback_data = local_movies
+        # Sort local movies by rating descending and return up to 20
+        fallback_data = sorted(fallback_data, key=lambda x: x.get('rating', 0.0), reverse=True)[:20]
+        return [MovieResponse(**m) for m in fallback_data]
 
     # Filter by genre if provided
     if genre:
@@ -1125,13 +1141,23 @@ async def get_personalized_recommendations(
                     })
 
         # Build recommendations response (deduplicate and limit)
+        fav_names_years = {(name.lower(), year) for name, year in fav_keys}
+        filtered_recs = []
+        for m in tmdb_recs:
+            if not include_viewed:
+                m_name = m.get('name', '')
+                m_year = m.get('year', 0)
+                if (m_name.lower(), m_year) in fav_names_years:
+                    continue
+            filtered_recs.append(m)
+
         recommendations = [
             RecommendationResponse(
                 movie=MovieResponse(**m),
                 similarity_score=m.get('rating') or 0.0,
                 match_reason="TMDB recommendation"
             )
-            for m in tmdb_recs[:limit]
+            for m in filtered_recs[:limit]
         ]
 
         based_on = {
