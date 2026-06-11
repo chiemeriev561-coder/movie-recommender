@@ -61,6 +61,35 @@ movies: List[Dict[str, Any]] = []  # Main movie dataset
 favorites: List[Dict[str, Any]] = []  # List of favorite movies
 _favorites_set: Set[Tuple[str, int]] = set()  # For O(1) lookups
 
+# Caching variables for performance optimization
+_cached_genres: Optional[List[Dict[str, Any]]] = None
+_cached_categories: Optional[List[Dict[str, Any]]] = None
+
+_last_favorites_mtime: float = 0.0
+_last_favorites_path: Optional[str] = None
+
+_movies_map: Dict[Tuple[str, int], Dict[str, Any]] = {}
+_last_movies_id: Optional[int] = None
+_last_movies_len: int = -1
+
+def _invalidate_caches() -> None:
+    """Invalidate computed genre and category caches."""
+    global _cached_genres, _cached_categories
+    _cached_genres = None
+    _cached_categories = None
+
+def _update_movies_map_if_needed() -> None:
+    """Lazily update the in-memory movie lookup map if movies list reference or size changed."""
+    global _movies_map, _last_movies_id, _last_movies_len
+    if id(movies) != _last_movies_id or len(movies) != _last_movies_len:
+        _movies_map = {
+            (m.get('name', '').lower(), m.get('year')): m
+            for m in movies
+        }
+        _last_movies_id = id(movies)
+        _last_movies_len = len(movies)
+
+
 # Built-in movies (will be combined with CSV data)
 builtin_movies = [
     {"name": "Superman", "year": 1978, "category": "Blockbuster", "genre": "Action", "box_office_millions": 134.2, "rating": 7.9},
@@ -116,6 +145,8 @@ def initialize_movie_dataset():
     # Update the global movies list
     movies.clear()
     movies.extend(movies_list)
+    _invalidate_caches()
+    _update_movies_map_if_needed()
     
     # Initialize search fields for all movies (deferred until after function definition)
     # This will be called after ensure_search_fields is defined
@@ -212,9 +243,25 @@ def load_favorites(path: str = FAVORITES_FILE) -> List[Dict[str, Any]]:
     Returns:
         List of favorite movie entries, each with 'name' and 'year'.
     """
+    global _last_favorites_mtime, _last_favorites_path
     try:
+        p = Path(path)
+        if not p.exists():
+            _last_favorites_mtime = 0.0
+            _last_favorites_path = path
+            return _set_favorites_state([])
+        
+        mtime = p.stat().st_mtime
+        if _last_favorites_path == path and _last_favorites_mtime == mtime:
+            return favorites
+            
         with _favorites_file_lock(path):
+            mtime = p.stat().st_mtime
+            if _last_favorites_path == path and _last_favorites_mtime == mtime:
+                return favorites
             entries = _read_favorites_file(path)
+            _last_favorites_mtime = mtime
+            _last_favorites_path = path
         return _set_favorites_state(entries)
     except Exception as e:
         logger.exception("Failed to load favorites from %s: %s", path, str(e))
@@ -230,10 +277,15 @@ def save_favorites(path: str = FAVORITES_FILE) -> bool:
     Returns:
         bool: True if save was successful, False otherwise.
     """
-    global last_save_error
+    global last_save_error, _last_favorites_mtime, _last_favorites_path
     try:
         with _favorites_file_lock(path):
             _atomic_write_json(path, favorites)
+            try:
+                _last_favorites_mtime = Path(path).stat().st_mtime
+                _last_favorites_path = path
+            except Exception:
+                _last_favorites_mtime = 0.0
         last_save_error = None
         return True
     except Exception as e:
@@ -254,7 +306,7 @@ def add_favorite(name: str, year: int, path: str = FAVORITES_FILE) -> bool:
     Returns:
         bool: True if added successfully, False otherwise.
     """
-    global last_save_error
+    global last_save_error, _last_favorites_mtime, _last_favorites_path
 
     if not isinstance(name, str) or not isinstance(year, int):
         logger.warning("Invalid name or year type")
@@ -282,6 +334,11 @@ def add_favorite(name: str, year: int, path: str = FAVORITES_FILE) -> bool:
             updated_favorites = current_favorites + [{'name': name, 'year': year}]
             _atomic_write_json(path, updated_favorites)
             _set_favorites_state(updated_favorites)
+            try:
+                _last_favorites_mtime = Path(path).stat().st_mtime
+                _last_favorites_path = path
+            except Exception:
+                _last_favorites_mtime = 0.0
             last_save_error = None
             return True
     except Exception as e:
@@ -302,7 +359,7 @@ def remove_favorite(name: str, year: int, path: str = FAVORITES_FILE) -> bool:
     Returns:
         bool: True if removed successfully, False otherwise.
     """
-    global last_save_error
+    global last_save_error, _last_favorites_mtime, _last_favorites_path
 
     name_lower = name.lower()
 
@@ -320,6 +377,11 @@ def remove_favorite(name: str, year: int, path: str = FAVORITES_FILE) -> bool:
             ]
             _atomic_write_json(path, updated_favorites)
             _set_favorites_state(updated_favorites)
+            try:
+                _last_favorites_mtime = Path(path).stat().st_mtime
+                _last_favorites_path = path
+            except Exception:
+                _last_favorites_mtime = 0.0
             last_save_error = None
             return True
     except Exception as e:
@@ -344,14 +406,11 @@ def get_favorite_movies() -> List[Dict[str, Any]]:
     Returns:
         List of full movie dictionaries for all favorites.
     """
-    movie_lookup = {
-        (movie.get('name'), movie.get('year')): movie
-        for movie in movies
-    }
+    _update_movies_map_if_needed()
     return [
-        movie_lookup[key]
-        for key in ((fav['name'], fav['year']) for fav in favorites)
-        if key in movie_lookup
+        _movies_map[key]
+        for key in ((fav['name'].lower(), fav['year']) for fav in favorites)
+        if key in _movies_map
     ]
 
 
@@ -454,6 +513,10 @@ def serialize_movies(movie_list: List[dict]) -> List[dict]:
 
 def get_available_genres() -> List[dict]:
     """Return list of {'genre': name, 'count': n} for genre tokens (split on '/') sorted by count desc then name."""
+    global _cached_genres
+    if _cached_genres is not None:
+        return _cached_genres
+
     from collections import Counter
     counter = Counter()
     for m in movies:
@@ -464,18 +527,24 @@ def get_available_genres() -> List[dict]:
         tokens = [t.strip() for t in re.split(r'[\s/]+', g) if t.strip()]
         for t in tokens:
             counter[t] += 1
-    return [{'genre': name, 'count': counter[name]} for name in sorted(counter.keys(), key=lambda x: (-counter[x], x))]
+    _cached_genres = [{'genre': name, 'count': counter[name]} for name in sorted(counter.keys(), key=lambda x: (-counter[x], x))]
+    return _cached_genres
 
 
 def get_available_categories() -> List[dict]:
     """Return list of {'category': name, 'count': n} sorted by count desc then name."""
+    global _cached_categories
+    if _cached_categories is not None:
+        return _cached_categories
+
     from collections import Counter
     counter = Counter()
     for m in movies:
         c = m.get('category')
         if c:
             counter[c] += 1
-    return [{'category': name, 'count': counter[name]} for name in sorted(counter.keys(), key=lambda x: (-counter[x], x))]
+    _cached_categories = [{'category': name, 'count': counter[name]} for name in sorted(counter.keys(), key=lambda x: (-counter[x], x))]
+    return _cached_categories
 
 
 def add_movie(movie: dict) -> bool:
@@ -491,6 +560,8 @@ def add_movie(movie: dict) -> bool:
         return False
     movies.append(movie)
     ensure_search_fields(movie)
+    _invalidate_caches()
+    _update_movies_map_if_needed()
     return True
 
 
@@ -632,6 +703,11 @@ def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool
     # start with snapshot to avoid mutation issues
     movie_list = list(movies)
 
+    # Ensure all movies have search fields populated
+    for m in movie_list:
+        if '_name_lower' not in m:
+            ensure_search_fields(m)
+
     # Apply filters first to limit search space
     if genre:
         genre_lower = genre.lower()
@@ -671,11 +747,12 @@ def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool
         else:
             tokens = [t for t in re.split(r'\s+|/|,', q_lower) if t]
             for m in movie_list:
-                name = m.get('name','').lower()
-                genre_v = m.get('genre','').lower()
-                category_v = m.get('category','').lower()
+                name = m['_name_lower']
+                genre_v = m['_genre_lower']
+                category_v = m['_category_lower']
+                name_tokens = m['_name_tokens']
                 # token-level match -> highest priority
-                if any(t in name.split() or t == genre_v or t == category_v for t in tokens):
+                if any(t in name_tokens or t == genre_v or t == category_v for t in tokens):
                     matches_with_priority.append((m, 1000))
                     continue
                 # startswith on name tokens -> high priority
@@ -689,8 +766,8 @@ def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool
 
     # Fuzzy matching for remaining candidates
     if enable_fuzzy and _HAS_RAPIDFUZZ and q_lower:
-        existing_keys = {(m.get('name'), m.get('year')) for m, _ in matches_with_priority}
-        candidates = [m for m in movie_list if (m.get('name'), m.get('year')) not in existing_keys]
+        existing_keys = {m['_key'] for m, _ in matches_with_priority}
+        candidates = [m for m in movie_list if m['_key'] not in existing_keys]
         scored = []
         # Cap the fuzzy candidate set by rating/box-office to reduce work
         candidates_sorted = sorted(candidates, key=lambda x: (x.get('rating',0), x.get('box_office_millions',0)), reverse=True)
@@ -722,7 +799,7 @@ def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool
     # Deduplicate: keep the highest-priority entry for each (name, year)
     best = {}
     for m, p in matches_with_priority:
-        key = (m.get('name'), m.get('year'))
+        key = m['_key']
         if key not in best or p > best[key][0]:
             best[key] = (p, m)
 
@@ -730,7 +807,7 @@ def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool
 
     # Sorting: either respect explicit sort_by requested by caller, or use (priority, rating, box_office)
     def _priority_of(movie):
-        return best.get((movie.get('name'), movie.get('year')), (0, movie))[0]
+        return best.get(movie['_key'], (0, movie))[0]
 
     if sort_by:
         sb = sort_by.lower()
@@ -769,6 +846,8 @@ def expand_dataset_if_needed(min_total: int = 600, auto_save: bool = False, save
     generated = generate_synthetic_movies(target_count=min_total, start_year=2019, end_year=2025)
     movies.extend(generated)
     logger.info("Dataset expanded to %d movies.", len(movies))
+    _invalidate_caches()
+    _update_movies_map_if_needed()
     if auto_save:
         out = save_path or 'movies_expanded_2019_2025.json'
         success = save_movies(out, movies)
@@ -793,6 +872,13 @@ def ensure_search_fields(movie: dict) -> None:
     # list of canonical genre tokens (e.g., 'Action', 'Family') preserved as lowercase
     movie['all_genres'] = [t for t in re.split(r'[\/|,]', genre_raw) if t.strip()]
     movie['all_genres'] = [g.strip() for g in movie['all_genres']]
+    
+    # Optimization cached fields
+    movie['_name_lower'] = name_l
+    movie['_genre_lower'] = genre_l
+    movie['_category_lower'] = category_l
+    movie['_name_tokens'] = set(t for t in re.split(r'\s+|/|,|\|', name_l) if t)
+    movie['_key'] = (name_l, movie.get('year'))
 
 
 def complete_initialization():
@@ -807,6 +893,7 @@ def complete_initialization():
             ensure_search_fields(m)
         except Exception:
             logger.exception("Failed to initialize search fields for movie: %s", m.get('name'))
+    _update_movies_map_if_needed()
 
 
 # Complete initialization after all functions are defined

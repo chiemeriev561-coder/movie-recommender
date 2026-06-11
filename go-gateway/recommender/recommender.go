@@ -65,20 +65,31 @@ var (
 		{Name: "City of God", Year: 2002, Category: "Indie", Genre: "Crime/Drama", BoxOfficeMillions: 30.6, Rating: 8.6},
 		{Name: "Coco", Year: 2017, Category: "Animation", Genre: "Family/Animation", BoxOfficeMillions: 807.1, Rating: 8.4},
 	}
+
+	// Optimization cache structures
+	lastFavoritesMtime time.Time
+	lastFavoritesPath  string
+
+	MoviesMap     map[string]Movie
+	lastMoviesLen int
+
+	cachedGenres     []GenreCount
+	cachedCategories []CategoryCount
 )
 
 // Types
 type Movie struct {
-	Name               string   `json:"name"`
-	Year               int      `json:"year"`
-	Category           string   `json:"category"`
-	Genre              string   `json:"genre"`
-	BoxOfficeMillions float64  `json:"box_office_millions"`
-	Rating             float64  `json:"rating"`
-	MovieID            int      `json:"movieId,omitempty"`
-	AllGenres          []string `json:"all_genres,omitempty"`
-	SearchText         string   `json:"_search_text,omitempty"`
-	Tokens             []string `json:"_tokens,omitempty"`
+	Name               string          `json:"name"`
+	Year               int             `json:"year"`
+	Category           string          `json:"category"`
+	Genre              string          `json:"genre"`
+	BoxOfficeMillions float64         `json:"box_office_millions"`
+	Rating             float64         `json:"rating"`
+	MovieID            int             `json:"movieId,omitempty"`
+	AllGenres          []string        `json:"all_genres,omitempty"`
+	SearchText         string          `json:"_search_text,omitempty"`
+	Tokens             []string        `json:"_tokens,omitempty"`
+	TokensSet          map[string]bool `json:"-"`
 }
 
 type Favorite struct {
@@ -131,9 +142,15 @@ func InitializeMovieDataset() {
 		}
 	}
 
+	MoviesMap = make(map[string]Movie)
 	for i := range Movies {
 		ensureSearchFields(&Movies[i])
+		MoviesMap[strings.ToLower(Movies[i].Name)+"|"+strconv.Itoa(Movies[i].Year)] = Movies[i]
 	}
+	lastMoviesLen = len(Movies)
+
+	cachedGenres = nil
+	cachedCategories = nil
 }
 
 func ensureSearchFields(m *Movie) {
@@ -144,11 +161,36 @@ func ensureSearchFields(m *Movie) {
 	
 	tokens := regexp.MustCompile(`[\s/+,]`).Split(m.SearchText, -1)
 	m.Tokens = nil
+	m.TokensSet = make(map[string]bool)
 	for _, t := range tokens {
 		if t != "" {
 			m.Tokens = append(m.Tokens, t)
+			m.TokensSet[t] = true
 		}
 	}
+}
+
+func getMoviesMap() map[string]Movie {
+	Mutex.RLock()
+	if len(Movies) == lastMoviesLen && MoviesMap != nil {
+		mMap := MoviesMap
+		Mutex.RUnlock()
+		return mMap
+	}
+	Mutex.RUnlock()
+
+	Mutex.Lock()
+	defer Mutex.Unlock()
+	if len(Movies) == lastMoviesLen && MoviesMap != nil {
+		return MoviesMap
+	}
+
+	MoviesMap = make(map[string]Movie)
+	for _, m := range Movies {
+		MoviesMap[strings.ToLower(m.Name)+"|"+strconv.Itoa(m.Year)] = m
+	}
+	lastMoviesLen = len(Movies)
+	return MoviesMap
 }
 
 // CSV Loader Logic (Ported from csv_loader.py)
@@ -326,10 +368,32 @@ func LoadFavorites(path string) {
 	Mutex.Lock()
 	defer Mutex.Unlock()
 
+	fi, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			FavoritesSet = make(map[string]bool)
+			Favorites = nil
+			lastFavoritesMtime = time.Time{}
+			lastFavoritesPath = path
+			return
+		}
+		log.Printf("Failed to stat favorites: %v", err)
+	} else {
+		if path == lastFavoritesPath && fi.ModTime().Equal(lastFavoritesMtime) {
+			return
+		}
+	}
+
 	FavoritesSet = make(map[string]bool)
 	Favorites = nil
 
-	err := withFileLock(path, func() error {
+	err = withFileLock(path, func() error {
+		if fi2, err := os.Stat(path); err == nil {
+			if path == lastFavoritesPath && fi2.ModTime().Equal(lastFavoritesMtime) {
+				return nil
+			}
+		}
+
 		file, err := os.Open(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -345,6 +409,11 @@ func LoadFavorites(path string) {
 		for _, f := range Favorites {
 			FavoritesSet[strings.ToLower(f.Name)+"|"+strconv.Itoa(f.Year)] = true
 		}
+
+		if fi2, err := os.Stat(path); err == nil {
+			lastFavoritesMtime = fi2.ModTime()
+			lastFavoritesPath = path
+		}
 		return nil
 	})
 	if err != nil {
@@ -357,7 +426,14 @@ func SaveFavorites(path string) bool {
 	defer Mutex.RUnlock()
 
 	err := withFileLock(path, func() error {
-		return atomicWriteJSON(path, Favorites)
+		err := atomicWriteJSON(path, Favorites)
+		if err == nil {
+			if fi, err := os.Stat(path); err == nil {
+				lastFavoritesMtime = fi.ModTime()
+				lastFavoritesPath = path
+			}
+		}
+		return err
 	})
 	if err != nil {
 		LastSaveError = fmt.Sprintf("Failed to save favorites: %v", err)
@@ -411,6 +487,11 @@ func AddFavorite(name string, year int, path string) bool {
 			FavoritesSet = make(map[string]bool)
 		}
 		FavoritesSet[key] = true
+
+		if fi, err := os.Stat(path); err == nil {
+			lastFavoritesMtime = fi.ModTime()
+			lastFavoritesPath = path
+		}
 		return nil
 	})
 
@@ -454,6 +535,11 @@ func RemoveFavorite(name string, year int, path string) bool {
 		}
 		Favorites = updated
 		delete(FavoritesSet, key)
+
+		if fi, err := os.Stat(path); err == nil {
+			lastFavoritesMtime = fi.ModTime()
+			lastFavoritesPath = path
+		}
 		return nil
 	})
 
@@ -465,18 +551,15 @@ func RemoveFavorite(name string, year int, path string) bool {
 }
 
 func GetFavoriteMovies() []Movie {
+	mMap := getMoviesMap()
+
 	Mutex.RLock()
 	defer Mutex.RUnlock()
-
-	lookup := make(map[string]Movie)
-	for _, m := range Movies {
-		lookup[strings.ToLower(m.Name)+"|"+strconv.Itoa(m.Year)] = m
-	}
 
 	var results []Movie
 	for _, f := range Favorites {
 		key := strings.ToLower(f.Name) + "|" + strconv.Itoa(f.Year)
-		if m, ok := lookup[key]; ok {
+		if m, ok := mMap[key]; ok {
 			results = append(results, m)
 		} else {
 			results = append(results, Movie{
@@ -601,15 +684,8 @@ func FindMatches(query string, maxResults int, enableFuzzy bool, threshold int, 
 					if t == "" {
 						continue
 					}
-					// token-level match -> highest priority
-					isToken := false
-					for _, mt := range m.Tokens {
-						if mt == t {
-							isToken = true
-							break
-						}
-					}
-					if isToken {
+					// token-level match -> highest priority (O(1) lookup)
+					if m.TokensSet != nil && m.TokensSet[t] {
 						priority = 1000
 						break
 					}
@@ -743,7 +819,19 @@ func mathRound(val float64, precision int) float64 {
 
 func getAvailableGenres() []GenreCount {
 	Mutex.RLock()
-	defer Mutex.RUnlock()
+	if cachedGenres != nil {
+		res := cachedGenres
+		Mutex.RUnlock()
+		return res
+	}
+	Mutex.RUnlock()
+
+	Mutex.Lock()
+	defer Mutex.Unlock()
+	if cachedGenres != nil {
+		return cachedGenres
+	}
+
 	counts := make(map[string]int)
 	for _, m := range Movies {
 		tokens := regexp.MustCompile(`[\s/]+`).Split(m.Genre, -1)
@@ -764,12 +852,25 @@ func getAvailableGenres() []GenreCount {
 		}
 		return res[i].Genre < res[j].Genre
 	})
+	cachedGenres = res
 	return res
 }
 
 func getAvailableCategories() []CategoryCount {
 	Mutex.RLock()
-	defer Mutex.RUnlock()
+	if cachedCategories != nil {
+		res := cachedCategories
+		Mutex.RUnlock()
+		return res
+	}
+	Mutex.RUnlock()
+
+	Mutex.Lock()
+	defer Mutex.Unlock()
+	if cachedCategories != nil {
+		return cachedCategories
+	}
+
 	counts := make(map[string]int)
 	for _, m := range Movies {
 		if m.Category != "" {
@@ -786,5 +887,6 @@ func getAvailableCategories() []CategoryCount {
 		}
 		return res[i].Category < res[j].Category
 	})
+	cachedCategories = res
 	return res
 }
