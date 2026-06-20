@@ -25,12 +25,23 @@ def test_trending_fallback_when_no_key(monkeypatch):
 
 def test_trending_error_fallback(monkeypatch):
     """Test that the trending endpoint falls back to CSV when TMDB API fails."""
-    # Set a dummy key
-    monkeypatch.setattr("api.TMDB_API_KEY", "dummy_key")
+    import api
+    monkeypatch.setattr(api, "TMDB_API_KEY", "dummy_key")
     
-    # We could mock httpx.AsyncClient to simulate a failure
-    # But for a quick check, this confirms the logic handles a bad key if we simulate a raised Exception
+    class ErrorAsyncClient:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+        async def get(self, url, params=None):
+            raise api.httpx.RequestError("TMDB is down")
+            
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda *args, **kwargs: ErrorAsyncClient())
     
-    # Since we can't easily mock the internal httpx call without more boilerplate,
-    # let's just rely on the fallback logic being tested by the first test.
-    pass
+    response = client.get("/api/movies/trending")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) > 0
+    # Confirm it returned MovieResponse objects (based on local data)
+    assert "name" in data[0]
+    assert "year" in data[0]

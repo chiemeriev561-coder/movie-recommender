@@ -319,32 +319,41 @@ def select_tmdb_trailer(videos: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
 
 
 # --- TMDB helper utilities for TMDB-only recommendations ---
-async def tmdb_search_movie(title: str, year: Optional[int] = None, limit: int = 5) -> List[Dict[str, Any]]:
+async def tmdb_search_movie(title: str, year: Optional[int] = None, limit: int = 5, client: Optional[httpx.AsyncClient] = None) -> List[Dict[str, Any]]:
     """Search TMDB for movies matching title (optionally year). Returns list of TMDB movie dicts."""
     if not TMDB_API_KEY:
         return []
+
+    cache_key = f"tmdb_search_{title.lower()}_{year or 'any'}_{limit}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     params = {"api_key": TMDB_API_KEY, "query": title, "page": 1}
     if year:
-        # primary_release_year can help narrow results
         params["primary_release_year"] = year
-    async with httpx.AsyncClient(timeout=8.0) as client:
+
+    async def _fetch(c):
         try:
-            resp = await client.get("https://api.themoviedb.org/3/search/movie", params=params)
+            resp = await c.get("https://api.themoviedb.org/3/search/movie", params=params)
+            if resp.status_code != 200:
+                logger.warning("TMDB search returned status %s for title=%s", resp.status_code, title)
+                return []
+            results = resp.json().get("results", [])[:limit]
+            cache.set(cache_key, results, expire=86400)
+            return results
         except Exception:
             logger.exception("TMDB search request failed for title=%s year=%s", title, year)
             return []
-    if resp.status_code != 200:
-        logger.warning("TMDB search returned status %s for title=%s", resp.status_code, title)
-        return []
-    try:
-        results = resp.json().get("results", [])[:limit]
-    except ValueError:
-        logger.warning("Invalid JSON from TMDB search for title=%s", title)
-        return []
-    return results
+
+    if client:
+        return await _fetch(client)
+    else:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            return await _fetch(client)
 
 
-async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10) -> List[Dict[str, Any]]:
+async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10, client: Optional[httpx.AsyncClient] = None) -> List[Dict[str, Any]]:
     """Get TMDB recommendations for a TMDB movie ID and return formatted movie dicts."""
     if not TMDB_API_KEY:
         return []
@@ -352,37 +361,38 @@ async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10) -> List[Dict[s
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    async with httpx.AsyncClient(timeout=10.0) as client:
+
+    async def _fetch(c):
         try:
-            resp = await client.get(f"https://api.themoviedb.org/3/movie/{tmdb_id}/recommendations", params={"api_key": TMDB_API_KEY, "page": 1})
+            resp = await c.get(f"https://api.themoviedb.org/3/movie/{tmdb_id}/recommendations", params={"api_key": TMDB_API_KEY, "page": 1})
+            if resp.status_code != 200:
+                logger.warning("TMDB recommendations returned status %s for id=%s", resp.status_code, tmdb_id)
+                return []
+            raw = resp.json().get("results", [])[:top_n]
+            formatted = []
+            for r in raw:
+                formatted.append({
+                    "id": r.get("id"),
+                    "name": r.get("title"),
+                    "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+                    "category": "TMDB",
+                    "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
+                    "box_office_millions": None,
+                    "rating": round(r.get("vote_average", 0), 1),
+                    "description": r.get("overview"),
+                    "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+                })
+            cache.set(cache_key, formatted, expire=86400)
+            return formatted
         except Exception:
             logger.exception("Failed to fetch TMDB recommendations for id=%s", tmdb_id)
             return []
-    if resp.status_code != 200:
-        logger.warning("TMDB recommendations returned status %s for id=%s", resp.status_code, tmdb_id)
-        return []
-    try:
-        raw = resp.json().get("results", [])[:top_n]
-    except ValueError:
-        logger.warning("Invalid JSON in TMDB recommendations for id=%s", tmdb_id)
-        return []
 
-    formatted = []
-    for r in raw:
-        formatted.append({
-            "id": r.get("id"),
-            "name": r.get("title"),
-            "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
-            "category": "TMDB",
-            "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
-            "box_office_millions": None,
-            "rating": round(r.get("vote_average", 0), 1),
-            "description": r.get("overview"),
-            "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
-        })
-
-    cache.set(cache_key, formatted, expire=86400)
-    return formatted
+    if client:
+        return await _fetch(client)
+    else:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            return await _fetch(client)
 
 def get_user_preferences(user_ip: str) -> Dict[str, Any]:
     """Get or initialize user preferences for content-based filtering."""
@@ -958,75 +968,16 @@ async def recommend_by_title(
         if not title or not title.strip():
             raise HTTPException(status_code=400, detail="Title is required")
 
-
-        # Search TMDB for the title
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            try:
-                search_resp = await client.get("https://api.themoviedb.org/3/search/movie",
-                                               params={"api_key": TMDB_API_KEY, "query": title, "page": 1})
-            except Exception:
-                logger.exception("Failed to reach TMDB search endpoint for title=%s", title)
-                raise HTTPException(status_code=502, detail="Failed to reach TMDB")
-
-        if search_resp.status_code != 200:
-            logger.warning("TMDB search failed for '%s' with status %s", title, search_resp.status_code)
-            raise HTTPException(status_code=502, detail="TMDB search failed")
-
-        try:
-            results = search_resp.json().get("results", [])
-        except ValueError:
-            logger.warning("TMDB returned invalid JSON for search '%s'", title)
-            raise HTTPException(status_code=502, detail="Invalid TMDB response")
-
+        # Search TMDB for the title (caching is handled inside tmdb_search_movie)
+        results = await tmdb_search_movie(title, limit=5)
         if not results:
             raise HTTPException(status_code=404, detail="Movie not found on TMDB")
 
         movie0 = results[0]
         tmdb_id = movie0.get("id")
 
-        # Fetch TMDB recommendations for the found movie
-        rec_cache_key = f"tmdb_rec_fallback_{tmdb_id}_{top_n}"
-        cached = cache.get(rec_cache_key)
-        if cached is not None:
-            return RecommendationsResponse(
-                recommendations=[RecommendationResponse(movie=MovieResponse(**m), similarity_score=m.get('rating') or 0.0, match_reason='TMDB recommendation') for m in cached],
-                based_on={"query": title, "matched_title": movie0.get("title"), "source": "tmdb"},
-                total_available=len(cached)
-            )
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                rec_resp = await client.get(f"https://api.themoviedb.org/3/movie/{tmdb_id}/recommendations",
-                                            params={"api_key": TMDB_API_KEY, "page": 1})
-            except Exception:
-                logger.exception("Failed to fetch TMDB recommendations for id=%s", tmdb_id)
-                raise HTTPException(status_code=502, detail="Failed to fetch TMDB recommendations")
-
-        if rec_resp.status_code != 200:
-            logger.warning("TMDB recommendations failed for id=%s with status=%s", tmdb_id, rec_resp.status_code)
-            raise HTTPException(status_code=502, detail="TMDB recommendations failed")
-
-        try:
-            raw_recs = rec_resp.json().get("results", [])[:top_n]
-        except ValueError:
-            logger.warning("Invalid JSON in TMDB recommendations for id=%s", tmdb_id)
-            raise HTTPException(status_code=502, detail="Invalid TMDB response")
-
-        formatted = []
-        for r in raw_recs:
-            formatted.append({
-                "id": r.get("id"),
-                "name": r.get("title"),
-                "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
-                "category": "TMDB",
-                "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
-                "box_office_millions": None,
-                "rating": round(r.get("vote_average", 0), 1),
-                "description": r.get("overview"),
-                "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
-            })
-
-        cache.set(rec_cache_key, formatted, expire=86400)
+        # Fetch TMDB recommendations (caching is handled inside tmdb_get_recommendations)
+        recs = await tmdb_get_recommendations(tmdb_id, top_n=top_n)
 
         recommendations = [
             RecommendationResponse(
@@ -1034,7 +985,7 @@ async def recommend_by_title(
                 similarity_score=m.get('rating') or 0.0,
                 match_reason="TMDB recommendation"
             )
-            for m in formatted
+            for m in recs
         ]
 
         return RecommendationsResponse(
@@ -1085,27 +1036,26 @@ async def get_personalized_recommendations(
         tmdb_recs = []
         seen_ids = set()
 
+        import asyncio
+
+        async def get_recs_for_favorite(name, year, client):
+            # Search TMDB (caching is handled inside tmdb_search_movie)
+            search_results = await tmdb_search_movie(name, year=year, limit=5, client=client)
+            if not search_results:
+                return []
+            tmdb_id = search_results[0].get("id")
+            if not tmdb_id:
+                return []
+            # Get recommendations (caching is handled inside tmdb_get_recommendations)
+            return await tmdb_get_recommendations(tmdb_id, top_n=limit, client=client)
+
         async with httpx.AsyncClient(timeout=10.0) as client:
-            for name, year in list(fav_keys)[:5]:
-                # Search TMDB for each favorite
-                try:
-                    resp = await client.get("https://api.themoviedb.org/3/search/movie", params={"api_key": TMDB_API_KEY, "query": name, "primary_release_year": year, "page": 1})
-                except Exception:
-                    logger.exception("Failed TMDB search for user's favorite %s (%s)", name, year)
+            tasks = [get_recs_for_favorite(name, year, client) for name, year in list(fav_keys)[:5]]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in results:
+                if isinstance(res, Exception) or not res:
                     continue
-                if resp.status_code != 200:
-                    continue
-                try:
-                    results = resp.json().get("results", [])
-                except ValueError:
-                    continue
-                if not results:
-                    continue
-                tmdb_id = results[0].get("id")
-                if not tmdb_id:
-                    continue
-                recs = await tmdb_get_recommendations(tmdb_id, top_n=limit)
-                for r in recs:
+                for r in res:
                     if r.get('id') in seen_ids:
                         continue
                     seen_ids.add(r.get('id'))

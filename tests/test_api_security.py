@@ -60,6 +60,43 @@ def test_recommendations_use_request_users_own_favorites(tmp_path, monkeypatch):
     api.cache.clear()
     mr.load_favorites(str(favorites_path))
 
+    class MockResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class MockAsyncClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, params=None):
+            if "search/movie" in url:
+                return MockResponse(200, {
+                    "results": [{"id": 550, "title": "Inception", "release_date": "2010-07-16", "vote_average": 8.8}]
+                })
+            elif "recommendations" in url:
+                return MockResponse(200, {
+                    "results": [
+                        {"id": 1292695, "title": "Next Movie", "poster_path": "/next.jpg", "release_date": "2025-01-15", "vote_average": 7.6}
+                    ]
+                })
+            elif "top_rated" in url:
+                return MockResponse(200, {
+                    "results": [
+                        {"id": 1292695, "title": "Top Movie", "poster_path": "/top.jpg", "release_date": "2024-01-15", "vote_average": 8.5}
+                    ]
+                })
+            return MockResponse(404, {"detail": "Not Found"})
+
+    monkeypatch.setattr(api, "TMDB_API_KEY", "dummy_key")
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda *args, **kwargs: MockAsyncClient())
+
     first_user_client = TestClient(api.app, client=("198.51.100.10", 50000))
     second_user_client = TestClient(api.app, client=("198.51.100.11", 50001))
 

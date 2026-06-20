@@ -597,7 +597,8 @@ def generate_synthetic_movies(target_count: int = 600, start_year: int = 2019, e
     generated = []
     random.seed(42)  # reproducible
     while len(movies) + len(generated) < target_count:
-        name = _unique_title(existing_titles | {m['name'] for m in generated})
+        name = _unique_title(existing_titles)
+        existing_titles.add(name)
         year = random.randint(start_year, end_year)
         genre = random.choice(GENRES)
         category = random.choice(CATEGORIES)
@@ -674,6 +675,8 @@ def parse_filters(filter_text: str) -> dict:
 
 def _movie_text_parts(movie: Dict[str, Any]) -> Tuple[str, str]:
     """Return normalized search text for genre and category filters."""
+    if '_genre_search_text' in movie and '_category_search_text' in movie:
+        return movie['_genre_search_text'], movie['_category_search_text']
     genre_parts = [str(movie.get('genre', ''))]
     genre_parts.extend(movie.get('all_genres', []))
     genre_text = " ".join(part.lower() for part in genre_parts if part).strip()
@@ -870,8 +873,8 @@ def ensure_search_fields(movie: dict) -> None:
     # tokens split on whitespace, slashes and commas
     movie['_tokens'] = set(t for t in re.split(r'\s+|/|,|\|', search_text) if t)
     # list of canonical genre tokens (e.g., 'Action', 'Family') preserved as lowercase
-    movie['all_genres'] = [t for t in re.split(r'[\/|,]', genre_raw) if t.strip()]
-    movie['all_genres'] = [g.strip() for g in movie['all_genres']]
+    all_genres = [t for t in re.split(r'[\/|,]', genre_raw) if t.strip()]
+    movie['all_genres'] = [g.strip() for g in all_genres]
     
     # Optimization cached fields
     movie['_name_lower'] = name_l
@@ -879,6 +882,11 @@ def ensure_search_fields(movie: dict) -> None:
     movie['_category_lower'] = category_l
     movie['_name_tokens'] = set(t for t in re.split(r'\s+|/|,|\|', name_l) if t)
     movie['_key'] = (name_l, movie.get('year'))
+
+    # Precompute genre and category search texts
+    genre_parts = [genre_l] + [g.lower() for g in movie['all_genres']]
+    movie['_genre_search_text'] = " ".join(part for part in genre_parts if part).strip()
+    movie['_category_search_text'] = category_l
 
 
 def complete_initialization():
