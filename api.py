@@ -892,6 +892,98 @@ async def get_statistics(request: Request):
         logger.exception("Error getting statistics")
         raise HTTPException(status_code=500, detail="Internal error")
 
+@app.get("/api/movies/{movie_id}/watch-providers", response_model=WatchProvidersResponse)
+@limiter.limit("30/minute")
+async def get_watch_providers(
+    request: Request,
+    movie_id: int, 
+    country_code: str = Query(default="US", description="ISO 3166-1 country code (e.g., US, GB, NG)")
+):
+    """
+    Fetches where a movie is streaming, renting, or buying, and injects affiliate links.
+    """
+    if not TMDB_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TMDB integration is not configured"
+        )
+    
+    clean_id = str(movie_id).strip()
+    cache_key = f"watch_providers_{clean_id}_{country_code}"
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return cached_result
+    
+    # 1. Fetch from TMDB
+    tmdb_url = f"https://api.themoviedb.org/3/movie/{clean_id}/watch/providers"
+    params = {"api_key": TMDB_API_KEY}
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(tmdb_url, params=params)
+    except httpx.RequestError:
+        logger.exception("Failed to reach TMDB watch providers endpoint for movie_id=%s", clean_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch watch providers from TMDB"
+        )
+    
+    if response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Movie not found on TMDB")
+    
+    if response.status_code != status.HTTP_200_OK:
+        logger.warning(
+            "TMDB watch providers lookup failed for movie_id=%s with status=%s",
+            clean_id,
+            response.status_code,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch watch providers from TMDB"
+        )
+    
+    data = response.json()
+    results = data.get("results", {})
+    country_data = results.get(country_code, {})
+    
+    # 2. Clean the data and inject affiliate links
+    providers_list = []
+    
+    # TMDB groups by 'flatrate' (stream), 'rent', and 'buy'
+    categories = {
+        "flatrate": "stream",
+        "rent": "rent",
+        "buy": "buy"
+    }
+    
+    for tmdb_category, our_type in categories.items():
+        if tmdb_category in country_data:
+            for provider in country_data[tmdb_category]:
+                prov_id = provider["provider_id"]
+                
+                # INJECT AFFILIATE LINK HERE 💸
+                # If we have an affiliate link, use it. Otherwise, fallback to TMDB's default link.
+                final_link = AFFILIATE_LINKS.get(prov_id, country_data.get("link", "#"))
+                
+                providers_list.append(WatchProviderItem(
+                    provider_id=prov_id,
+                    provider_name=provider["provider_name"],
+                    logo_url=f"https://image.tmdb.org/t/p/original{provider['logo_path']}",
+                    link=final_link,
+                    type=our_type  # "stream", "rent", or "buy"
+                ))
+    
+    result = WatchProvidersResponse(
+        movie_id=int(clean_id),
+        country=country_code,
+        providers=providers_list
+    )
+    
+    # Cache for 24 hours
+    cache.set(cache_key, result, expire=86400)
+    
+    return result
+
 @app.get("/api/movies/{name}/{year}", response_model=MovieResponse)
 @limiter.limit("30/minute")
 async def get_movie_details(request: Request, name: str, year: int):
@@ -1245,98 +1337,6 @@ async def get_discovery_recommendations(
     except Exception as e:
         logger.exception("Error generating TMDB discovery recommendations")
         raise HTTPException(status_code=500, detail="Internal error")
-
-@app.get("/api/movies/{movie_id}/watch-providers", response_model=WatchProvidersResponse)
-@limiter.limit("30/minute")
-async def get_watch_providers(
-    request: Request,
-    movie_id: int, 
-    country_code: str = Query(default="US", description="ISO 3166-1 country code (e.g., US, GB, NG)")
-):
-    """
-    Fetches where a movie is streaming, renting, or buying, and injects affiliate links.
-    """
-    if not TMDB_API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="TMDB integration is not configured"
-        )
-    
-    clean_id = str(movie_id).strip()
-    cache_key = f"watch_providers_{clean_id}_{country_code}"
-    cached_result = cache.get(cache_key)
-    if cached_result is not None:
-        return cached_result
-    
-    # 1. Fetch from TMDB
-    tmdb_url = f"https://api.themoviedb.org/3/movie/{clean_id}/watch/providers"
-    params = {"api_key": TMDB_API_KEY}
-    
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(tmdb_url, params=params)
-    except httpx.RequestError:
-        logger.exception("Failed to reach TMDB watch providers endpoint for movie_id=%s", clean_id)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to fetch watch providers from TMDB"
-        )
-    
-    if response.status_code == status.HTTP_404_NOT_FOUND:
-        raise HTTPException(status_code=404, detail="Movie not found on TMDB")
-    
-    if response.status_code != status.HTTP_200_OK:
-        logger.warning(
-            "TMDB watch providers lookup failed for movie_id=%s with status=%s",
-            clean_id,
-            response.status_code,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to fetch watch providers from TMDB"
-        )
-    
-    data = response.json()
-    results = data.get("results", {})
-    country_data = results.get(country_code, {})
-    
-    # 2. Clean the data and inject affiliate links
-    providers_list = []
-    
-    # TMDB groups by 'flatrate' (stream), 'rent', and 'buy'
-    categories = {
-        "flatrate": "stream",
-        "rent": "rent",
-        "buy": "buy"
-    }
-    
-    for tmdb_category, our_type in categories.items():
-        if tmdb_category in country_data:
-            for provider in country_data[tmdb_category]:
-                prov_id = provider["provider_id"]
-                
-                # INJECT AFFILIATE LINK HERE 💸
-                # If we have an affiliate link, use it. Otherwise, fallback to TMDB's default link.
-                final_link = AFFILIATE_LINKS.get(prov_id, country_data.get("link", "#"))
-                
-                providers_list.append(WatchProviderItem(
-                    provider_id=prov_id,
-                    provider_name=provider["provider_name"],
-                    logo_url=f"https://image.tmdb.org/t/p/original{provider['logo_path']}",
-                    link=final_link,
-                    type=our_type  # "stream", "rent", or "buy"
-                ))
-    
-    result = WatchProvidersResponse(
-        movie_id=int(clean_id),
-        country=country_code,
-        providers=providers_list
-    )
-    
-    # Cache for 24 hours
-    cache.set(cache_key, result, expire=86400)
-    
-    return result
 
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
