@@ -9,7 +9,7 @@ import httpx
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any, Set
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, Query, status, Response
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -464,6 +464,35 @@ async def root(request: Request):
         "redoc": "/redoc",
         "favorites_count": len(get_favorite_entries())
     }
+
+@app.get("/sitemap.xml")
+async def generate_sitemap():
+    """
+    Dynamically generates a sitemap.xml for Google to crawl.
+    """
+    # Frontend base URL (from allowed origins config)
+    base_url = "https://cine-craft-box.lovable.app"
+    
+    # Popular movie IDs to seed the sitemap
+    # In production, query your database for all movie IDs
+    movie_ids = [550, 157336, 27205, 299536, 634649]  # Fight Club, Interstellar, Inception, Avengers, Dune
+    
+    # Build the XML structure
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    
+    # Add homepage
+    xml += f'  <url>\n    <loc>{base_url}/</loc>\n    <priority>1.0</priority>\n  </url>\n'
+    
+    # Add movie pages
+    # Update the path if your frontend uses a different structure (e.g., /movies/{id} or /details/{id})
+    for movie_id in movie_ids:
+        xml += f'  <url>\n    <loc>{base_url}/movie/{movie_id}</loc>\n    <priority>0.8</priority>\n  </url>\n'
+    
+    xml += '</urlset>'
+    
+    # Return as XML
+    return Response(content=xml, media_type="application/xml")
 
 @app.get("/api/movies/trending")
 @limiter.limit("20/minute")
