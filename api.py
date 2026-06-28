@@ -244,6 +244,7 @@ class WatchProviderItem(BaseModel):
 
 class WatchProvidersResponse(BaseModel):
     movie_id: int
+    movie_title: str = "movies"
     country: str
     providers: List[WatchProviderItem]
 
@@ -943,67 +944,82 @@ async def get_watch_providers(
     if cached_result is not None:
         return cached_result
     
-    # 1. Fetch from TMDB
-    tmdb_url = f"https://api.themoviedb.org/3/movie/{clean_id}/watch/providers"
-    params = {"api_key": TMDB_API_KEY}
-    
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(tmdb_url, params=params)
-    except httpx.RequestError:
-        logger.exception("Failed to reach TMDB watch providers endpoint for movie_id=%s", clean_id)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to fetch watch providers from TMDB"
+    # 1. Fetch Movie Details (to get the title) AND Watch Providers at the same time
+    import asyncio
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        details_task = client.get(
+            f"https://api.themoviedb.org/3/movie/{clean_id}", 
+            params={"api_key": TMDB_API_KEY}
         )
-    
-    if response.status_code == status.HTTP_404_NOT_FOUND:
+        providers_task = client.get(
+            f"https://api.themoviedb.org/3/movie/{clean_id}/watch/providers", 
+            params={"api_key": TMDB_API_KEY}
+        )
+        try:
+            details_response, providers_response = await asyncio.gather(details_task, providers_task)
+        except httpx.RequestError:
+            logger.exception("Failed to reach TMDB endpoints for movie_id=%s", clean_id)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to fetch data from TMDB"
+            )
+            
+    if details_response.status_code == status.HTTP_404_NOT_FOUND:
         raise HTTPException(status_code=404, detail="Movie not found on TMDB")
-    
-    if response.status_code != status.HTTP_200_OK:
+        
+    if details_response.status_code != 200 or providers_response.status_code != 200:
         logger.warning(
-            "TMDB watch providers lookup failed for movie_id=%s with status=%s",
+            "TMDB fetch failed for movie_id=%s. Details status=%s, Providers status=%s",
             clean_id,
-            response.status_code,
+            details_response.status_code,
+            providers_response.status_code
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to fetch watch providers from TMDB"
+            detail="Failed to fetch data from TMDB"
         )
+        
+    movie_data = details_response.json()
+    providers_data = providers_response.json()
     
-    data = response.json()
-    results = data.get("results", {})
+    # Get the movie title and clean it for a URL (replace spaces with +)
+    movie_title = movie_data.get("title", "movies")
+    search_query = movie_title.replace(" ", "+")
+    
+    # 2. Create your dynamic Amazon Affiliate Link 💰
+    AMAZON_TAG = "phloxmovies20-20"
+    amazon_link = f"https://www.amazon.com/s?k={search_query}&tag={AMAZON_TAG}"
+    
+    # 3. Process the providers
+    results = providers_data.get("results", {})
     country_data = results.get(country_code, {})
     
-    # 2. Clean the data and inject affiliate links
     providers_list = []
-    
-    # TMDB groups by 'flatrate' (stream), 'rent', and 'buy'
-    categories = {
-        "flatrate": "stream",
-        "rent": "rent",
-        "buy": "buy"
-    }
+    categories = {"flatrate": "stream", "rent": "rent", "buy": "buy"}
     
     for tmdb_category, our_type in categories.items():
         if tmdb_category in country_data:
             for provider in country_data[tmdb_category]:
                 prov_id = provider["provider_id"]
                 
-                # INJECT AFFILIATE LINK HERE 💸
-                # If we have an affiliate link, use it. Otherwise, fallback to TMDB's default link.
-                final_link = AFFILIATE_LINKS.get(prov_id, country_data.get("link", "#"))
+                # If it's Amazon Video (ID 10), use your dynamic affiliate link!
+                # Otherwise, use the default TMDB link.
+                if prov_id == 10: 
+                    final_link = amazon_link
+                else:
+                    final_link = country_data.get("link", "#")
                 
                 providers_list.append(WatchProviderItem(
                     provider_id=prov_id,
                     provider_name=provider["provider_name"],
                     logo_url=f"https://image.tmdb.org/t/p/original{provider['logo_path']}",
                     link=final_link,
-                    type=our_type  # "stream", "rent", or "buy"
+                    type=our_type
                 ))
-    
+
     result = WatchProvidersResponse(
         movie_id=int(clean_id),
+        movie_title=movie_title,
         country=country_code,
         providers=providers_list
     )
