@@ -11,7 +11,7 @@ Movie recommendation service with three entry points:
 - Search movies with optional fuzzy matching
 - Return trending, featured, top-rated, and recommendation results
 - Persist favorites to `favorites.json`
-- Fetch TMDB trailers, posters, and TMDB-based recommendations when `TMDB_API_KEY` is configured
+- Fetch TMDB trailers, posters, watch providers, and TMDB-based recommendations when `TMDB_API_KEY` is configured
 - Fall back to the local dataset for core recommendation features
 
 ## Project Layout
@@ -167,6 +167,7 @@ Gateway endpoints of note:
 - `GET /api/movies/{movie_id}/trailer`
 - `GET /api/movies/{movie_id}/stream`
 - `GET /api/movies/{movie_id}/recommendations`
+- `GET /api/movies/{movie_id}/watch-providers`
 - `GET /api/favorites`
 - `POST /api/favorites`
 - `DELETE /api/favorites`
