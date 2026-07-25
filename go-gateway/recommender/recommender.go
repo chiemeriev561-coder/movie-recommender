@@ -37,8 +37,9 @@ var (
 	Favorites         []Favorite
 	FavoritesSet      map[string]bool // key: "name|year"
 	Mutex             sync.RWMutex
-	YearRegexp        = regexp.MustCompile(`\((\d{4})\)`)
-	CleanTitleRegexp  = regexp.MustCompile(`\s*\(\d{4}\)$`)
+	YearRegexp       = regexp.MustCompile(`\((\d{4})\)`)
+	CleanTitleRegexp = regexp.MustCompile(`\s*\(\d{4}\)$`)
+	TokenSplitRegexp = regexp.MustCompile(`[\s/+,]`)
 	BuiltinMovies     = []Movie{
 		{Name: "Superman", Year: 1978, Category: "Blockbuster", Genre: "Action", BoxOfficeMillions: 134.2, Rating: 7.9},
 		{Name: "The Avengers", Year: 2012, Category: "Blockbuster", Genre: "Action", BoxOfficeMillions: 1518.8, Rating: 8.4},
@@ -159,7 +160,7 @@ func ensureSearchFields(m *Movie) {
 	category := strings.ToLower(m.Category)
 	m.SearchText = strings.TrimSpace(fmt.Sprintf("%s %s %s", name, genre, category))
 	
-	tokens := regexp.MustCompile(`[\s/+,]`).Split(m.SearchText, -1)
+	tokens := TokenSplitRegexp.Split(m.SearchText, -1)
 	m.Tokens = nil
 	m.TokensSet = make(map[string]bool)
 	for _, t := range tokens {
@@ -445,17 +446,9 @@ func SaveFavorites(path string) bool {
 
 func AddFavorite(name string, year int, path string) bool {
 	nameLower := strings.ToLower(name)
+	mMap := getMoviesMap()
 	key := nameLower + "|" + strconv.Itoa(year)
-
-	Mutex.RLock()
-	existsInDataset := false
-	for _, m := range Movies {
-		if strings.ToLower(m.Name) == nameLower && m.Year == year {
-			existsInDataset = true
-			break
-		}
-	}
-	Mutex.RUnlock()
+	_, existsInDataset := mMap[key]
 
 	if !existsInDataset {
 		log.Printf("Movie not found in dataset: %s (%d)", name, year)
@@ -673,7 +666,7 @@ func FindMatches(query string, maxResults int, enableFuzzy bool, threshold int, 
 				}
 			}
 		} else {
-			tokens := regexp.MustCompile(`[\s/+,]`).Split(qLower, -1)
+			tokens := TokenSplitRegexp.Split(qLower, -1)
 			for _, m := range filtered {
 				name := strings.ToLower(m.Name)
 				genreV := strings.ToLower(m.Genre)

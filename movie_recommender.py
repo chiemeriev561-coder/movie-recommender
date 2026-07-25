@@ -49,6 +49,10 @@ except Exception:
 DEFAULT_FUZZY_THRESHOLD = 70
 FUZZY_MAX_CANDIDATES = 250
 
+TOKEN_SPLIT_REGEX = re.compile(r'[\s/,\-|]+')
+GENRE_SPLIT_REGEX = re.compile(r'[\/|,]')
+
+
 # Initialize logger at module level
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -313,12 +317,8 @@ def add_favorite(name: str, year: int, path: str = FAVORITES_FILE) -> bool:
         return False
 
     name_lower = name.lower()
-    movie_exists = any(
-        m.get('name', '').lower() == name_lower 
-        and m.get('year') == year 
-        for m in movies
-    )
-    if not movie_exists:
+    _update_movies_map_if_needed()
+    if (name_lower, year) not in _movies_map:
         logger.warning("Movie not found in dataset: %s (%d)", name, year)
         return False
 
@@ -520,13 +520,16 @@ def get_available_genres() -> List[dict]:
     from collections import Counter
     counter = Counter()
     for m in movies:
-        g = m.get('genre')
-        if not g:
-            continue
-        # split by slash and whitespace to get tokens like 'Animation' from 'Family/Animation'
-        tokens = [t.strip() for t in re.split(r'[\s/]+', g) if t.strip()]
-        for t in tokens:
-            counter[t] += 1
+        all_g = m.get('all_genres')
+        if not all_g:
+            g = m.get('genre')
+            if g:
+                all_g = [t.strip() for t in GENRE_SPLIT_REGEX.split(g) if t.strip()]
+            else:
+                continue
+        for t in all_g:
+            if t:
+                counter[t] += 1
     _cached_genres = [{'genre': name, 'count': counter[name]} for name in sorted(counter.keys(), key=lambda x: (-counter[x], x))]
     return _cached_genres
 
@@ -552,10 +555,10 @@ def add_movie(movie: dict) -> bool:
     if not validate_movie_schema(movie):
         logger.warning("Invalid movie schema; not added.")
         return False
-    # avoid duplicates by exact name+year
-    existing = {(m['name'].lower(), m['year']) for m in movies}
+    # avoid duplicates by exact name+year using O(1) map lookup
+    _update_movies_map_if_needed()
     key = (movie['name'].lower(), movie['year'])
-    if key in existing:
+    if key in _movies_map:
         logger.info("Movie %s (%s) already exists; skipping.", movie['name'], movie['year'])
         return False
     movies.append(movie)
@@ -748,7 +751,7 @@ def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool
                 if m.get('year') == y:
                     matches_with_priority.append((m, 1000))
         else:
-            tokens = [t for t in re.split(r'\s+|/|,', q_lower) if t]
+            tokens = [t for t in TOKEN_SPLIT_REGEX.split(q_lower) if t]
             for m in movie_list:
                 name = m['_name_lower']
                 genre_v = m['_genre_lower']
@@ -806,25 +809,23 @@ def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool
         if key not in best or p > best[key][0]:
             best[key] = (p, m)
 
-    ordered = [v[1] for v in best.values()]
+    best_items = list(best.values())
 
     # Sorting: either respect explicit sort_by requested by caller, or use (priority, rating, box_office)
-    def _priority_of(movie):
-        return best.get(movie['_key'], (0, movie))[0]
-
     if sort_by:
         sb = sort_by.lower()
         if sb == 'rating':
-            ordered.sort(key=lambda x: (x.get('rating',0), x.get('box_office_millions',0), _priority_of(x)), reverse=True)
+            best_items.sort(key=lambda item: (item[1].get('rating',0), item[1].get('box_office_millions',0), item[0]), reverse=True)
         elif sb in ('box_office', 'box_office_millions'):
-            ordered.sort(key=lambda x: (x.get('box_office_millions',0), x.get('rating',0), _priority_of(x)), reverse=True)
+            best_items.sort(key=lambda item: (item[1].get('box_office_millions',0), item[1].get('rating',0), item[0]), reverse=True)
         elif sb == 'year':
-            ordered.sort(key=lambda x: (x.get('year',0), x.get('rating',0), _priority_of(x)), reverse=True)
+            best_items.sort(key=lambda item: (item[1].get('year',0), item[1].get('rating',0), item[0]), reverse=True)
         else:
-            # Unknown sort_by: fallback to priority-based sorting
-            ordered.sort(key=lambda x: (_priority_of(x), x.get('rating',0), x.get('box_office_millions',0)), reverse=True)
+            best_items.sort(key=lambda item: (item[0], item[1].get('rating',0), item[1].get('box_office_millions',0)), reverse=True)
     else:
-        ordered.sort(key=lambda x: (_priority_of(x), x.get('rating',0), x.get('box_office_millions',0)), reverse=True)
+        best_items.sort(key=lambda item: (item[0], item[1].get('rating',0), item[1].get('box_office_millions',0)), reverse=True)
+
+    ordered = [item[1] for item in best_items]
 
     if max_results:
         return ordered[:max_results]
@@ -870,17 +871,14 @@ def ensure_search_fields(movie: dict) -> None:
     category_l = category.lower()
     search_text = f"{name_l} {genre_l} {category_l}".strip()
     movie['_search_text'] = search_text
-    # tokens split on whitespace, slashes and commas
-    movie['_tokens'] = set(t for t in re.split(r'\s+|/|,|\|', search_text) if t)
-    # list of canonical genre tokens (e.g., 'Action', 'Family') preserved as lowercase
-    all_genres = [t for t in re.split(r'[\/|,]', genre_raw) if t.strip()]
+    all_genres = [t for t in GENRE_SPLIT_REGEX.split(genre_raw) if t.strip()]
     movie['all_genres'] = [g.strip() for g in all_genres]
     
     # Optimization cached fields
     movie['_name_lower'] = name_l
     movie['_genre_lower'] = genre_l
     movie['_category_lower'] = category_l
-    movie['_name_tokens'] = set(t for t in re.split(r'\s+|/|,|\|', name_l) if t)
+    movie['_name_tokens'] = set(t for t in TOKEN_SPLIT_REGEX.split(name_l) if t)
     movie['_key'] = (name_l, movie.get('year'))
 
     # Precompute genre and category search texts

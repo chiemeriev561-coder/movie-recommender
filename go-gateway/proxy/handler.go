@@ -211,14 +211,9 @@ func (h *Handler) AddFavoriteHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Validate movie exists in Go memory dataset first
 	nameLower := strings.ToLower(favReq.Name)
+	key := nameLower + "|" + fmt.Sprintf("%d", favReq.Year)
 	recommender.Mutex.RLock()
-	movieExists := false
-	for _, m := range recommender.Movies {
-		if strings.ToLower(m.Name) == nameLower && m.Year == favReq.Year {
-			movieExists = true
-			break
-		}
-	}
+	_, movieExists := recommender.MoviesMap[key]
 	recommender.Mutex.RUnlock()
 
 	if !movieExists {

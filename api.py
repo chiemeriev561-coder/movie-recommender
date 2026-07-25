@@ -5,6 +5,7 @@ FastAPI application exposing movie recommendation functionality as REST endpoint
 
 import os
 import logging
+import asyncio
 import httpx
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any, Set
@@ -272,18 +273,19 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
 
     all_results = []
     async with httpx.AsyncClient(timeout=7.0) as client:
-        # Fetch multiple pages to get a larger pool (approx 60-100 movies)
-        for page in range(1, pages + 1):
-            try:
-                # Use popular for a diverse set
-                url = f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&page={page}"
-                response = await client.get(url)
-                if response.status_code == 200:
+        # Fetch multiple pages concurrently to avoid sequential HTTP wait
+        tasks = [
+            client.get(f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&page={page}")
+            for page in range(1, pages + 1)
+        ]
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        for response in responses:
+            if isinstance(response, httpx.Response) and response.status_code == 200:
+                try:
                     data = response.json()
                     all_results.extend(data.get("results", []))
-            except Exception as e:
-                logger.warning(f"Failed to fetch TMDB page {page}: {e}")
-                break
+                except Exception as e:
+                    logger.warning(f"Failed to parse TMDB page response: {e}")
     
     if not all_results:
         # No TMDB results available for trending; return empty list
@@ -574,10 +576,10 @@ async def search_movies(
         year_match = (year is None) or (m.get('year') == year)
 
         if (name_match or q_genre_match) and genre_match and year_match:
-            tmdb_matches.append(MovieResponse(**m))
+            tmdb_matches.append(m)
 
-    # Return TMDB-only matches
-    return tmdb_matches[:max_results]
+    # Return TMDB-only matches, creating Pydantic objects only for requested slice
+    return [MovieResponse(**m) for m in tmdb_matches[:max_results]]
 
 @app.get("/api/movies/featured", response_model=FeaturedResponse)
 @limiter.limit("20/minute")
