@@ -6,6 +6,8 @@ FastAPI application exposing movie recommendation functionality as REST endpoint
 import os
 import logging
 import asyncio
+import hashlib
+import json
 import httpx
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any, Set
@@ -82,6 +84,60 @@ def get_genre_ids_from_names(genre_names: List[str]) -> List[int]:
 
 # Persistent Disk Cache for TMDB responses and user state
 cache = diskcache.Cache("./.api_cache")
+CACHE_INDEX_PREFIX = "cache-index:v1:"
+_background_tasks: Set[asyncio.Task] = set()
+_scheduled_recommendations: Dict[tuple[int, int], asyncio.Task] = {}
+
+
+def indexed_cache_key(namespace: str, values: Dict[str, Any]) -> str:
+    """Build a compact, deterministic cache key and record it in an index.
+
+    DiskCache indexes its SQLite keys, but keeping a namespace index lets us
+    inspect/expire related entries without scanning the whole cache and avoids
+    expensive, process-dependent Python hashes in hot paths.
+    """
+    payload = json.dumps(values, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.blake2b(payload.encode("utf-8"), digest_size=16).hexdigest()
+    key = f"{namespace}:v1:{digest}"
+    index_key = f"{CACHE_INDEX_PREFIX}{namespace}"
+    keys = cache.get(index_key, set())
+    if key not in keys:
+        keys.add(key)
+        cache.set(index_key, keys, expire=86400 * 30)
+    return key
+
+
+def schedule_background(coro) -> asyncio.Task:
+    """Schedule cache warming work without delaying an HTTP response."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    task.add_done_callback(lambda completed: completed.exception() if not completed.cancelled() else None)
+    return task
+
+
+def schedule_recommendation_warm(tmdb_id: int, top_n: int = 10) -> asyncio.Task:
+    marker = (tmdb_id, top_n)
+    existing = _scheduled_recommendations.get(marker)
+    if existing is not None and not existing.done():
+        return existing
+
+    async def warm() -> List[Dict[str, Any]]:
+        try:
+            return await tmdb_get_recommendations(tmdb_id, top_n=top_n)
+        finally:
+            _scheduled_recommendations.pop(marker, None)
+
+    task = schedule_background(warm())
+    _scheduled_recommendations[marker] = task
+    return task
+
+
+async def prewarm_popular_searches() -> None:
+    if not TMDB_API_KEY:
+        return
+    titles = ["Inception", "Interstellar", "The Dark Knight", "The Avengers"]
+    await asyncio.gather(*(tmdb_search_movie(title, limit=5) for title in titles), return_exceptions=True)
 
 def get_user_genres_set(user_ip: str) -> Set[str]:
     """Get unique genres searched/filtered by a specific user IP."""
@@ -144,8 +200,15 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Movie Recommender API")
     load_favorites(FAVORITES_FILE)
     logger.info(f"Loaded {len(get_favorite_entries())} favorites from {FAVORITES_FILE}")
+    if TMDB_API_KEY:
+        schedule_background(prewarm_popular_searches())
+        logger.info("Scheduled TMDB cache pre-warming for popular searches")
     logger.info("API ready")
     yield
+    for task in list(_background_tasks):
+        task.cancel()
+    if _background_tasks:
+        await asyncio.gather(*_background_tasks, return_exceptions=True)
     logger.info("Shutting down Movie Recommender API")
 
 # Initialize FastAPI app
@@ -392,7 +455,9 @@ async def tmdb_search_movie(title: str, year: Optional[int] = None, limit: int =
     if not TMDB_API_KEY:
         return []
 
-    cache_key = f"tmdb_search_{title.lower()}_{year or 'any'}_{limit}"
+    cache_key = indexed_cache_key("tmdb-search", {
+        "title": title.strip().casefold(), "year": year, "limit": limit
+    })
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -425,7 +490,7 @@ async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10, client: Option
     """Get TMDB recommendations for a TMDB movie ID and return formatted movie dicts."""
     if not TMDB_API_KEY:
         return []
-    cache_key = f"tmdb_rec_id_{tmdb_id}_{top_n}"
+    cache_key = indexed_cache_key("tmdb-recommendations", {"tmdb_id": tmdb_id, "top_n": top_n})
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -826,7 +891,11 @@ async def advanced_search(
     # Keep disabled-mode responses separate from live TMDB responses.  This
     # matters when a process starts without a key and is later configured (and
     # also prevents a cached empty response masking a healthy TMDB result).
-    cache_key = "advanced_search_v2_" + ("tmdb_" if TMDB_API_KEY else "local_") + repr(sorted(params.items()))
+    cache_params = {key: value for key, value in params.items() if key != "api_key"}
+    cache_key = indexed_cache_key(
+        "advanced-search-tmdb" if TMDB_API_KEY else "advanced-search-local",
+        cache_params,
+    )
     cached = cache.get(cache_key)
     if cached is not None:
         logger.info(f"Returning cached advanced search for {query or 'filters'}")
@@ -868,13 +937,26 @@ async def advanced_search(
                 logger.error(f"Error in advanced search: {e}")
                 raise HTTPException(status_code=500, detail="Search failed")
 
-    # 5. Get recommendations based on best match
+    # 5. Reuse warm recommendations; otherwise populate them in the
+    # background so the search response is not held up by a second TMDB call.
     recommendations = []
     if search_results:
         top_match_id = search_results[0].id
         if top_match_id:
-            recs = await tmdb_get_recommendations(top_match_id, top_n=10)
-            recommendations = [MovieResponse(**r) for r in recs]
+            rec_cache_key = indexed_cache_key(
+                "tmdb-recommendations", {"tmdb_id": top_match_id, "top_n": 10}
+            )
+            cached_recs = cache.get(rec_cache_key)
+            if cached_recs is not None:
+                recommendations = [MovieResponse(**r) for r in cached_recs]
+            elif TMDB_API_KEY:
+                recommendation_task = schedule_recommendation_warm(top_match_id, top_n=10)
+                # A mocked/already-local task can finish in the same event
+                # loop turn; real network work continues after the response.
+                await asyncio.sleep(0)
+                if recommendation_task.done() and not recommendation_task.cancelled():
+                    recs = recommendation_task.result()
+                    recommendations = [MovieResponse(**r) for r in recs]
     
     # 6. Build response
     filters = AdvancedSearchFilters(
