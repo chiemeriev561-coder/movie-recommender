@@ -736,6 +736,18 @@ async def advanced_search(
     """
     user_ip = request.client.host if request.client else "unknown"
     
+    # FastAPI Query objects are exposed when this handler is called directly
+    # (the smart-search endpoint does that), so unwrap their defaults first.
+    def _default(value):
+        return getattr(value, "default", value)
+
+    query, keywords, genres = _default(query), _default(keywords), _default(genres)
+    year_min, year_max = _default(year_min), _default(year_max)
+    rating_min, rating_max = _default(rating_min), _default(rating_max)
+    cast, director = _default(cast), _default(director)
+    language, region = _default(language), _default(region)
+    include_adult = _default(include_adult)
+
     # Treat keywords as a convenient alias for the text query.  This keeps the
     # public API expressive while TMDB still receives one text constraint.
     query = query or keywords
@@ -811,7 +823,10 @@ async def advanced_search(
         params["query"] = query
 
     # 3. Generate cache key
-    cache_key = "advanced_search_v2_" + repr(sorted(params.items()))
+    # Keep disabled-mode responses separate from live TMDB responses.  This
+    # matters when a process starts without a key and is later configured (and
+    # also prevents a cached empty response masking a healthy TMDB result).
+    cache_key = "advanced_search_v2_" + ("tmdb_" if TMDB_API_KEY else "local_") + repr(sorted(params.items()))
     cached = cache.get(cache_key)
     if cached is not None:
         logger.info(f"Returning cached advanced search for {query or 'filters'}")
