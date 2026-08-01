@@ -68,6 +68,18 @@ TMDB_GENRES = {
     10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western"
 }
 
+# Reverse mapping: genre name -> TMDB ID
+GENRE_NAME_TO_ID = {name.lower(): id for id, name in TMDB_GENRES.items()}
+
+def get_genre_ids_from_names(genre_names: List[str]) -> List[int]:
+    """Convert genre names to TMDB genre IDs"""
+    genre_ids = []
+    for name in genre_names:
+        genre_id = GENRE_NAME_TO_ID.get(name.lower())
+        if genre_id:
+            genre_ids.append(genre_id)
+    return genre_ids
+
 # Persistent Disk Cache for TMDB responses and user state
 cache = diskcache.Cache("./.api_cache")
 
@@ -249,6 +261,37 @@ class WatchProvidersResponse(BaseModel):
     country: str
     providers: List[WatchProviderItem]
 
+# --- ADVANCED SEARCH MODELS ---
+class AdvancedSearchFilters(BaseModel):
+    """All possible search filters"""
+    query: Optional[str] = Field(None, description="Movie title or keywords")
+    genres: Optional[List[str]] = Field(None, description="Genre names (e.g., ['Action', 'Sci-Fi'])")
+    year_min: Optional[int] = Field(None, description="Minimum release year")
+    year_max: Optional[int] = Field(None, description="Maximum release year")
+    rating_min: Optional[float] = Field(None, description="Minimum rating (0-10)")
+    rating_max: Optional[float] = Field(None, description="Maximum rating (0-10)")
+    cast: Optional[str] = Field(None, description="Actor name (e.g., 'Tom Hanks')")
+    director: Optional[str] = Field(None, description="Director name (e.g., 'Christopher Nolan')")
+    language: Optional[str] = Field(None, description="Original language (e.g., 'en', 'fr')")
+    sort_by: Optional[str] = Field(
+        "popularity.desc",
+        description="Sort order: popularity.desc, vote_average.desc, release_date.desc, revenue.desc"
+    )
+    include_adult: bool = Field(False, description="Include adult content")
+    region: Optional[str] = Field(None, description="ISO 3166-1 country code for release date filtering")
+
+class AdvancedSearchResponse(BaseModel):
+    """Response for advanced search"""
+    search_results: List[MovieResponse]
+    recommendations: List[MovieResponse]
+    filters_used: AdvancedSearchFilters
+    total_results: int
+    source: str = "TMDB"
+
+class SmartSearchRequest(BaseModel):
+    """Request model for smart search endpoint"""
+    search_query: str
+
 # --- AFFILIATE LINKS CONFIGURATION ---
 # Map TMDB provider IDs to your affiliate URLs.
 # You can find provider IDs in the TMDB response (e.g., 9 = Amazon Prime, 350 = Apple TV)
@@ -419,6 +462,87 @@ async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10, client: Option
         async with httpx.AsyncClient(timeout=10.0) as client:
             return await _fetch(client)
 
+async def get_person_id(name: str) -> Optional[int]:
+    """Get TMDB person ID from name"""
+    cache_key = f"person_id_{name.lower()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    
+    if not TMDB_API_KEY:
+        return None
+    
+    async with httpx.AsyncClient(timeout=7.0) as client:
+        try:
+            response = await client.get(
+                "https://api.themoviedb.org/3/search/person",
+                params={"api_key": TMDB_API_KEY, "query": name}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                results = data.get("results", [])
+                if results:
+                    person_id = results[0].get("id")
+                    cache.set(cache_key, person_id, expire=86400 * 7)  # Cache for 7 days
+                    return person_id
+        except Exception as e:
+            logger.warning(f"Failed to get person ID for {name}: {e}")
+    
+    return None
+
+def extract_filters_from_text(text: str) -> Dict[str, Any]:
+    """Simple rule-based filter extraction from text"""
+    filters: Dict[str, Any] = {}
+    if not text:
+        return filters
+        
+    text_lower = text.lower()
+    
+    # Extract genres
+    genre_keywords = {name.lower(): name for name in TMDB_GENRES.values()}
+    genre_keywords["sci-fi"] = "Sci-Fi"
+    genre_keywords["scifi"] = "Sci-Fi"
+    genre_keywords["science fiction"] = "Sci-Fi"
+    
+    genres = []
+    for keyword, genre_name in genre_keywords.items():
+        if keyword in text_lower:
+            if genre_name not in genres:
+                genres.append(genre_name)
+    
+    if genres:
+        filters["genres"] = genres
+    
+    # Extract years
+    import re
+    year_pattern = r'\b(19[0-9]{2}|20[0-9]{2})\b'
+    years = re.findall(year_pattern, text)
+    if years:
+        years_int = [int(y) for y in years]
+        if len(years_int) == 1:
+            filters["year_min"] = years_int[0]
+            filters["year_max"] = years_int[0]
+        else:
+            filters["year_min"] = min(years_int)
+            filters["year_max"] = max(years_int)
+    
+    # Extract rating
+    rating_pattern = r'rating\s*(?:above|over|>|>=)\s*([0-9.]+)'
+    rating_match = re.search(rating_pattern, text_lower)
+    if rating_match:
+        filters["rating_min"] = float(rating_match.group(1))
+    
+    # Extract cast / director mentions
+    cast_match = re.search(r'(?:starring|with|featuring)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', text)
+    if cast_match:
+        filters["cast"] = cast_match.group(1)
+        
+    director_match = re.search(r'(?:directed by|director)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', text, re.IGNORECASE)
+    if director_match:
+        filters["director"] = director_match.group(1)
+    
+    return filters
+
 def get_user_preferences(user_ip: str) -> Dict[str, Any]:
     """Get or initialize user preferences for content-based filtering."""
     prefs = cache.get(f"prefs_{user_ip}")
@@ -580,6 +704,218 @@ async def search_movies(
 
     # Return TMDB-only matches, creating Pydantic objects only for requested slice
     return [MovieResponse(**m) for m in tmdb_matches[:max_results]]
+
+@app.get("/api/movies/advanced-search", response_model=AdvancedSearchResponse)
+@limiter.limit("20/minute")
+async def advanced_search(
+    request: Request,
+    query: Optional[str] = Query(None, description="Movie title or keywords"),
+    keywords: Optional[str] = Query(None, description="Keyword or phrase to search for"),
+    genres: Optional[str] = Query(None, description="Comma-separated genre names (e.g., 'Action,Sci-Fi')"),
+    year_min: Optional[int] = Query(None, description="Minimum release year"),
+    year_max: Optional[int] = Query(None, description="Maximum release year"),
+    rating_min: Optional[float] = Query(None, description="Minimum rating (0-10)"),
+    rating_max: Optional[float] = Query(None, description="Maximum rating (0-10)"),
+    cast: Optional[str] = Query(None, description="Actor name"),
+    director: Optional[str] = Query(None, description="Director name"),
+    language: Optional[str] = Query(None, description="Original language code (e.g. en)"),
+    region: Optional[str] = Query(None, description="ISO 3166-1 country code"),
+    include_adult: bool = Query(False, description="Include adult content"),
+    sort_by: str = Query("popularity.desc", description="Sort order"),
+    page: int = Query(1, ge=1, le=10, description="Page number for pagination"),
+    limit: int = Query(20, ge=1, le=50, description="Results per page"),
+):
+    """
+    Advanced search with multiple filters and automatic recommendations.
+    
+    Examples:
+    - /api/movies/advanced-search?genres=Action,Sci-Fi&year_min=2010&rating_min=7.0
+    - /api/movies/advanced-search?query=space&year_max=2000
+    - /api/movies/advanced-search?cast=Tom+Hanks&director=Steven+Spielberg
+    - /api/movies/advanced-search?genres=Comedy&sort_by=revenue.desc
+    """
+    user_ip = request.client.host if request.client else "unknown"
+    
+    # Treat keywords as a convenient alias for the text query.  This keeps the
+    # public API expressive while TMDB still receives one text constraint.
+    query = query or keywords
+
+    # Normalize parameters if Query defaults are passed during programmatic calls
+    if not isinstance(sort_by, str):
+        sort_by = getattr(sort_by, "default", "popularity.desc")
+    if not isinstance(page, int):
+        page = getattr(page, "default", 1)
+    if not isinstance(limit, int):
+        limit = getattr(limit, "default", 20)
+
+    # 1. Parse genres if provided
+    genre_list = [g.strip() for g in genres.split(',')] if genres else []
+    genre_ids = get_genre_ids_from_names(genre_list) if genre_list else []
+    
+    # Track user preferences for personalization
+    for genre in genre_list:
+        if genre:
+            add_user_genre(user_ip, genre)
+    
+    if year_min is not None and year_max is not None and year_min > year_max:
+        raise HTTPException(status_code=422, detail="year_min cannot be greater than year_max")
+    if rating_min is not None and rating_max is not None and rating_min > rating_max:
+        raise HTTPException(status_code=422, detail="rating_min cannot be greater than rating_max")
+    if rating_min is not None and not 0 <= rating_min <= 10:
+        raise HTTPException(status_code=422, detail="rating_min must be between 0 and 10")
+    if rating_max is not None and not 0 <= rating_max <= 10:
+        raise HTTPException(status_code=422, detail="rating_max must be between 0 and 10")
+
+    # TMDB's discover endpoint supports the complete filter set, including
+    # text, cast, and crew.  Use search only for a plain title lookup because
+    # /search/movie silently ignores the other filters.
+    has_discovery_filters = any((genre_ids, year_min, year_max, rating_min is not None,
+                                 rating_max is not None, cast, director, language, region,
+                                 include_adult))
+    use_discover = not query or has_discovery_filters
+    params: Dict[str, Any] = {
+        "api_key": TMDB_API_KEY,
+        "page": page,
+        "sort_by": sort_by,
+        "include_adult": include_adult,
+    }
+
+    if region:
+        params["region"] = region.upper()
+    if language:
+        params["with_original_language"] = language.lower()
+    
+    if cast:
+        cast_id = await get_person_id(cast)
+        if cast_id:
+            params["with_cast"] = cast_id
+    if director:
+        director_id = await get_person_id(director)
+        if director_id:
+            params["with_crew"] = director_id
+
+    if use_discover:
+        if query:
+            params["with_text_query"] = query
+        if genre_ids:
+            params["with_genres"] = ",".join(map(str, genre_ids))
+        if year_min:
+            params["primary_release_date.gte"] = f"{year_min}-01-01"
+        if year_max:
+            params["primary_release_date.lte"] = f"{year_max}-12-31"
+        if rating_min is not None:
+            params["vote_average.gte"] = rating_min
+        if rating_max is not None:
+            params["vote_average.lte"] = rating_max
+    else:
+        params["query"] = query
+
+    # 3. Generate cache key
+    cache_key = "advanced_search_v2_" + repr(sorted(params.items()))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        logger.info(f"Returning cached advanced search for {query or 'filters'}")
+        return AdvancedSearchResponse.model_validate(cached) if isinstance(cached, dict) else cached
+
+    # 4. Execute TMDB API call
+    search_results = []
+    total_results = 0
+    if TMDB_API_KEY:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                url = ("https://api.themoviedb.org/3/discover/movie" if use_discover
+                       else "https://api.themoviedb.org/3/search/movie")
+                
+                response = await client.get(url, params=params)
+                if response.status_code == 200:
+                    data = response.json()
+                    raw_results = data.get("results", [])
+                    total_results = int(data.get("total_results", len(raw_results)))
+                    
+                    # Format results
+                    for r in raw_results[:limit]:
+                        genre_names = [TMDB_GENRES.get(gid, "Unknown") for gid in r.get("genre_ids", [])]
+                        search_results.append(MovieResponse(
+                            id=r.get("id"),
+                            name=r.get("title", ""),
+                            year=int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+                            category="Search Result",
+                            genre=", ".join(genre_names) if genre_names else "Movie",
+                            description=r.get("overview"),
+                            rating=round(r.get("vote_average", 0.0), 1),
+                            poster_url=f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get("poster_path") else None,
+                            box_office_millions=None
+                        ))
+                else:
+                    logger.warning(f"TMDB API returned {response.status_code}")
+                    
+            except Exception as e:
+                logger.error(f"Error in advanced search: {e}")
+                raise HTTPException(status_code=500, detail="Search failed")
+
+    # 5. Get recommendations based on best match
+    recommendations = []
+    if search_results:
+        top_match_id = search_results[0].id
+        if top_match_id:
+            recs = await tmdb_get_recommendations(top_match_id, top_n=10)
+            recommendations = [MovieResponse(**r) for r in recs]
+    
+    # 6. Build response
+    filters = AdvancedSearchFilters(
+        query=query,
+        genres=genre_list if genre_list else None,
+        year_min=year_min,
+        year_max=year_max,
+        rating_min=rating_min,
+        rating_max=rating_max,
+        cast=cast,
+        director=director,
+        language=language,
+        region=region.upper() if region else None,
+        include_adult=include_adult,
+        sort_by=sort_by
+    )
+    
+    response = AdvancedSearchResponse(
+        search_results=search_results,
+        recommendations=recommendations,
+        filters_used=filters,
+        total_results=total_results,
+        source="TMDB"
+    )
+    
+    # Cache for 1 hour
+    cache.set(cache_key, response.model_dump(), expire=3600)
+    
+    return response
+
+@app.post("/api/movies/smart-search", response_model=AdvancedSearchResponse)
+@limiter.limit("15/minute")
+async def smart_search(
+    request: Request,
+    search_query: Optional[str] = Query(None, description="Natural language search query"),
+    body: Optional[SmartSearchRequest] = None
+):
+    """
+    Natural language search that parses the query and applies filters.
+    Example: "sci-fi action movies from 2015 to 2020 with rating above 7"
+    """
+    query_text = (body.search_query if body and body.search_query else search_query) or ""
+    
+    filters = extract_filters_from_text(query_text)
+    
+    return await advanced_search(
+        request=request,
+        query=filters.get("query"),
+        genres=",".join(filters.get("genres", [])) if filters.get("genres") else None,
+        year_min=filters.get("year_min"),
+        year_max=filters.get("year_max"),
+        rating_min=filters.get("rating_min"),
+        rating_max=filters.get("rating_max"),
+        cast=filters.get("cast"),
+        director=filters.get("director")
+    )
 
 @app.get("/api/movies/featured", response_model=FeaturedResponse)
 @limiter.limit("20/minute")

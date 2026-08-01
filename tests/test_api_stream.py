@@ -10,7 +10,7 @@ def test_stream_endpoint_returns_correct_embed_url():
     assert response.status_code == 200
     data = response.json()
     assert data["movie_id"] == "550"
-    assert data["stream_url"] == "https://vidsrc.cc/v2/embed/movie/550"
+    assert data["stream_url"] == "https://vidlink.pro/movie/550"
     assert data["provider"] == "Phlox Premium Secure Stream"
 
 def test_stream_endpoint_strips_movie_id():
@@ -20,4 +20,4 @@ def test_stream_endpoint_strips_movie_id():
     assert response.status_code == 200
     data = response.json()
     assert data["movie_id"] == "12345"
-    assert data["stream_url"] == "https://vidsrc.cc/v2/embed/movie/12345"
+    assert data["stream_url"] == "https://vidlink.pro/movie/12345"
