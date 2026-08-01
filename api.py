@@ -753,7 +753,7 @@ async def get_movie_stream_url(request: Request, movie_id: str):
     clean_id = str(movie_id).strip()
     
     # Clean, low-ad developer endpoint
-    stream_url = f"https://vidsrc.cc/v2/embed/movie/{clean_id}"
+    stream_url = f"https://vidlink.pro/movie/{clean_id}"
     
     return StreamResponse(
         movie_id=clean_id,
