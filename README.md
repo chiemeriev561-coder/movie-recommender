@@ -121,7 +121,9 @@ Frontend
 Features
 --------
 - Advanced search with filters: title, genre, year range, rating range, cast, director, sort options.
-- Personalized recommendations based on search results and user preferences.
+- Hybrid recommendation system combining TMDB data with content-based scoring.
+- Personalized recommendations based on user favorites and search history.
+- TMDB integration: recommendations, similar movies, and discover endpoint.
 - Embedded streaming via VidLink.
 - Persistent favorites stored in favorites.json or configured storage.
 - Detailed movie pages: posters, backdrops, trailers, cast, crew, watch providers, user ratings.
@@ -255,6 +257,8 @@ Main endpoints
 - GET /api/movies/{id}/trailer — Movie trailer
 - GET /api/movies/{id}/stream — Streaming URL
 - GET /api/movies/{id}/recommendations — Recommendations
+- GET /api/recommendations — Personalized hybrid recommendations
+- GET /api/recommendations/hybrid — Hybrid TMDB + content-based recommendations
 - GET /api/favorites — Get favorites
 - POST /api/favorites — Add favorite
 - DELETE /api/favorites — Remove favorite
@@ -281,6 +285,58 @@ Response format (JSON)
   "total_results": 20,
   "source": "TMDB"
 }
+
+Hybrid Recommendation System
+-----------------------------
+The system uses a hybrid approach combining TMDB's popularity signals with content-based similarity scoring.
+
+Strategy Overview
+
+1. Fetch candidate pool from TMDB (recommendations, similar movies, discover)
+2. Convert candidates to content function format
+3. Score with content-based functions (genre overlap, year proximity, rating closeness)
+4. Blend TMDB rank/popularity with content score
+5. Return re-ranked list
+
+Personalized Recommendations (GET /api/recommendations)
+
+- Gets user's favorite movies from local dataset
+- For each favorite, pulls TMDB recommendations AND similar movies (broader pool)
+- Collects and deduplicates candidate pool by TMDB ID
+- Converts candidates to content format
+- Scores pool against user's favorites using get_personalized_content_recommendations
+- Returns top results re-ranked by content similarity
+- Fallback to TMDB top-rated when user has no favorites
+
+Hybrid Recommendations (GET /api/recommendations/hybrid)
+
+- Accepts tmdb_id, genres, year range, rating filters
+- Fetches candidates from TMDB recommendations/similar/discover
+- Converts to content format
+- Scores with content-based functions (personalized if favorites provided)
+- Blends TMDB popularity (log-normalized) with content score using configurable weights
+- Default weights: tmdb_weight=0.4, content_weight=0.6
+
+Example Usage
+
+Personalized recommendations based on favorites:
+GET /api/recommendations?limit=20&include_viewed=false
+
+Hybrid recommendations based on a specific movie:
+GET /api/recommendations/hybrid?tmdb_id=550&limit=20
+
+Hybrid with genre filters and custom weights:
+GET /api/recommendations/hybrid?genres=Action,Sci-Fi&year_min=2010&tmdb_weight=0.3&content_weight=0.7
+
+Content-Based Scoring
+
+The system uses weighted scoring based on:
+
+- Genre overlap (Jaccard similarity): 50% weight
+- Year proximity: 20% weight
+- Rating closeness: 30% weight
+
+This ensures recommendations are both popular (TMDB signals) and personally relevant (content similarity).
 
 Frontend Integration
 --------------------

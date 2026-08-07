@@ -2012,15 +2012,14 @@ async def get_personalized_recommendations(
     include_viewed: bool = Query(False, description="Include movies user has already favorited")
 ):
     """
-    Get personalized movie recommendations based on content-based filtering.
+    Get personalized movie recommendations using hybrid strategy.
     
-    Analyzes user's favorite movies and search history to recommend similar content.
-    Factors considered:
-    - Genre preferences from favorites and searches
-    - Category alignment (Blockbuster, Indie, Classic, etc.)
-    - Rating preferences
-    - Year/decade preferences
-    - Popularity signals
+    Strategy:
+    1. Get user's favorite movies (local dataset)
+    2. For each favorite, pull TMDB recommendations
+    3. Collect a big candidate pool from TMDB
+    4. Score the pool against user's favorites using content-based filtering
+    5. Return top results re-ranked by content similarity
     """
     user_ip = request.client.host if request.client else "unknown"
     
@@ -2028,46 +2027,19 @@ async def get_personalized_recommendations(
         if not TMDB_API_KEY:
             raise HTTPException(status_code=503, detail="TMDB integration is not configured")
 
-        # Update preferences from search history
-        prefs = get_user_preferences(user_ip)
-        user_genres_set = get_user_genres_set(user_ip)
-        if user_genres_set:
-            prefs["liked_genres"].update(user_genres_set)
-            save_user_preferences(user_ip, prefs)
-
-        # Gather user's favorite movies (name, year) and map to TMDB IDs
+        # 1. Get user's favorite movies from local dataset
         fav_keys = get_user_favorite_keys(user_ip)
-        tmdb_recs = []
-        seen_ids = set()
-
-        import asyncio
-
-        async def get_recs_for_favorite(name, year, client):
-            # Search TMDB (caching is handled inside tmdb_search_movie)
-            search_results = await tmdb_search_movie(name, year=year, limit=5, client=client)
-            if not search_results:
-                return []
-            tmdb_id = search_results[0].get("id")
-            if not tmdb_id:
-                return []
-            # Get recommendations (caching is handled inside tmdb_get_recommendations)
-            return await tmdb_get_recommendations(tmdb_id, top_n=limit, client=client)
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            tasks = [get_recs_for_favorite(name, year, client) for name, year in list(fav_keys)[:5]]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for res in results:
-                if isinstance(res, Exception) or not res:
-                    continue
-                for r in res:
-                    if r.get('id') in seen_ids:
-                        continue
-                    seen_ids.add(r.get('id'))
-                    tmdb_recs.append(r)
-
-        # If no favorites or no TMDB recs, fallback to TMDB popular/top rated
-        if not tmdb_recs:
-            # Use TMDB discover/popular endpoint
+        from movie_recommender import _movies_map
+        movie_recommender._update_movies_map_if_needed()
+        
+        favorite_movies = []
+        for name, year in fav_keys:
+            key = (name.lower(), year)
+            if key in _movies_map:
+                favorite_movies.append(_movies_map[key])
+        
+        if not favorite_movies:
+            # No favorites, fallback to TMDB popular
             async with httpx.AsyncClient(timeout=8.0) as client:
                 try:
                     resp = await client.get("https://api.themoviedb.org/3/movie/top_rated", params={"api_key": TMDB_API_KEY, "page": 1})
@@ -2080,53 +2052,123 @@ async def get_personalized_recommendations(
                     raw = resp.json().get("results", [])[:limit]
                 except ValueError:
                     raise HTTPException(status_code=502, detail="Invalid TMDB response")
-                tmdb_recs = []
+                
+                recommendations = []
                 for r in raw:
-                    tmdb_recs.append({
-                        "id": r.get("id"),
-                        "name": r.get("title"),
-                        "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
-                        "category": "TMDB",
-                        "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
-                        "box_office_millions": None,
-                        "rating": round(r.get("vote_average", 0), 1),
-                        "description": r.get("overview"),
-                        "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+                    recommendations.append({
+                        "movie": {
+                            "id": r.get("id"),
+                            "name": r.get("title"),
+                            "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+                            "category": "TMDB",
+                            "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
+                            "box_office_millions": None,
+                            "rating": round(r.get("vote_average", 0), 1),
+                            "description": r.get("overview"),
+                            "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+                        },
+                        "similarity_score": r.get("vote_average", 0.0) / 10.0,
+                        "match_reason": "Popular on TMDB (no favorites yet)"
                     })
+                
+                return RecommendationsResponse(
+                    recommendations=recommendations[:limit],
+                    based_on={"source": "tmdb_popular", "favorites_count": 0},
+                    total_available=len(recommendations)
+                )
 
-        # Build recommendations response (deduplicate and limit)
-        fav_names_years = {(name.lower(), year) for name, year in fav_keys}
-        filtered_recs = []
-        for m in tmdb_recs:
-            if not include_viewed:
-                m_name = m.get('name', '')
-                m_year = m.get('year', 0)
-                if (m_name.lower(), m_year) in fav_names_years:
+        # 2. For each favorite, pull TMDB recommendations
+        tmdb_candidates = []
+        seen_ids = set()
+
+        async def get_recs_for_favorite(name, year, client):
+            search_results = await tmdb_search_movie(name, year=year, limit=5, client=client)
+            if not search_results:
+                return []
+            tmdb_id = search_results[0].get("id")
+            if not tmdb_id:
+                return []
+            # Get both recommendations and similar movies for broader pool
+            recs = await tmdb_get_recommendations(tmdb_id, top_n=15, client=client)
+            similar = await tmdb_get_similar(tmdb_id, top_n=15, client=client)
+            return recs + similar
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            tasks = [get_recs_for_favorite(name, year, client) for name, year in list(fav_keys)[:5]]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in results:
+                if isinstance(res, Exception) or not res:
                     continue
-            filtered_recs.append(m)
+                for r in res:
+                    if r.get('id') in seen_ids:
+                        continue
+                    seen_ids.add(r.get('id'))
+                    tmdb_candidates.append(r)
 
+        # 3. Collect candidate pool (deduplicated)
+        if not tmdb_candidates:
+            # Fallback to discover if no recommendations found
+            tmdb_candidates = await tmdb_discover(limit=50)
+
+        # 4. Convert candidates to content format and score with content-based filtering
+        content_candidates = [convert_tmdb_to_content_format(c) for c in tmdb_candidates]
+        
+        # Score against user's favorites using personalized content recommendations
+        scored_candidates = get_personalized_content_recommendations(
+            favorite_movies=favorite_movies,
+            candidate_movies=content_candidates,
+            metric="weighted",
+            limit=len(content_candidates)
+        )
+
+        # 5. Filter out already favorited movies if requested
+        fav_names_years = {(name.lower(), year) for name, year in fav_keys}
+        filtered_candidates = []
+        for candidate in scored_candidates:
+            if not include_viewed:
+                c_name = candidate.get('name', '')
+                c_year = candidate.get('year', 0)
+                if (c_name.lower(), c_year) in fav_names_years:
+                    continue
+            filtered_candidates.append(candidate)
+
+        # Build recommendations response
         recommendations = [
-            RecommendationResponse(
-                movie=MovieResponse(**m),
-                similarity_score=m.get('rating') or 0.0,
-                match_reason="TMDB recommendation"
-            )
-            for m in filtered_recs[:limit]
+            {
+                "movie": {
+                    "id": c.get("id"),
+                    "name": c.get("name"),
+                    "year": c.get("year"),
+                    "category": c.get("category"),
+                    "genre": c.get("genre"),
+                    "description": c.get("description"),
+                    "box_office_millions": c.get("box_office_millions"),
+                    "rating": c.get("rating"),
+                    "poster_url": c.get("poster_url")
+                },
+                "similarity_score": c.get("similarity_score", 0.0),
+                "match_reason": c.get("match_reason", "Content-based similarity")
+            }
+            for c in filtered_candidates[:limit]
         ]
 
         based_on = {
-            "source": "tmdb",
-            "favorites_count": len(get_user_favorite_keys(user_ip))
+            "source": "hybrid_tmdb_content",
+            "favorites_count": len(favorite_movies),
+            "candidate_pool_size": len(tmdb_candidates),
+            "strategy": "TMDB recommendations + content-based re-ranking"
         }
 
         return RecommendationsResponse(
             recommendations=recommendations,
             based_on=based_on,
-            total_available=len(recommendations)
+            total_available=len(filtered_candidates)
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception("Error generating TMDB-based personalized recommendations")
+        logger.exception("Error generating personalized recommendations")
         raise HTTPException(status_code=500, detail="Internal error")
 
 @app.get("/api/recommendations/hybrid", response_model=RecommendationsResponse)
