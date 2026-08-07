@@ -14,6 +14,7 @@ import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
 from dotenv import load_dotenv
+import math
 
 try:
     import fcntl
@@ -885,6 +886,250 @@ def ensure_search_fields(movie: dict) -> None:
     genre_parts = [genre_l] + [g.lower() for g in movie['all_genres']]
     movie['_genre_search_text'] = " ".join(part for part in genre_parts if part).strip()
     movie['_category_search_text'] = category_l
+
+
+def compute_jaccard_similarity(genres_a: Set[str], genres_b: Set[str]) -> float:
+    """Compute the Jaccard similarity between two sets of genres."""
+    if not genres_a or not genres_b:
+        return 0.0
+    intersection = genres_a.intersection(genres_b)
+    union = genres_a.union(genres_b)
+    return len(intersection) / len(union)
+
+
+def build_feature_vector(movie: Dict[str, Any], all_genres: List[str], min_year: int, max_year: int) -> List[float]:
+    """Build a normalized numerical feature vector for a movie."""
+    # 1. Genres multi-hot
+    movie_genres = set(g.lower() for g in movie.get('all_genres', []))
+    genre_vector = [1.0 if g in movie_genres else 0.0 for g in all_genres]
+    
+    # 2. Year normalization (min-max, avoid division by zero)
+    year = movie.get('year', 0)
+    year_range = max_year - min_year
+    normalized_year = (year - min_year) / year_range if year_range > 0 else 0.5
+    
+    # 3. Rating normalization (rating is out of 10)
+    rating = movie.get('rating', 0.0)
+    normalized_rating = rating / 10.0
+    
+    # Combine feature vectors
+    return genre_vector + [normalized_year, normalized_rating]
+
+
+def compute_cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+    """Compute cosine similarity between two numeric vectors."""
+    dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
+    magnitude_a = math.sqrt(sum(a * a for a in vec_a))
+    magnitude_b = math.sqrt(sum(b * b for b in vec_b))
+    if magnitude_a == 0.0 or magnitude_b == 0.0:
+        return 0.0
+    return dot_product / (magnitude_a * magnitude_b)
+
+
+def compute_weighted_score(movie_a: Dict[str, Any], movie_b: Dict[str, Any]) -> float:
+    """Compute simple weighted score based on genre overlap, year proximity, and rating closeness."""
+    # 1. Genre overlap: Jaccard similarity on genres
+    genres_a = set(g.lower() for g in movie_a.get('all_genres', []))
+    genres_b = set(g.lower() for g in movie_b.get('all_genres', []))
+    genre_overlap = compute_jaccard_similarity(genres_a, genres_b)
+    
+    # 2. Year proximity: 1 - abs(year_a - year_b) / 50.0 (capped at 0.0)
+    year_a = movie_a.get('year', 0)
+    year_b = movie_b.get('year', 0)
+    year_proximity = max(0.0, 1.0 - abs(year_a - year_b) / 50.0)
+    
+    # 3. Rating closeness: 1 - abs(rating_a - rating_b) / 10.0
+    rating_a = movie_a.get('rating', 0.0)
+    rating_b = movie_b.get('rating', 0.0)
+    rating_closeness = max(0.0, 1.0 - abs(rating_a - rating_b) / 10.0)
+    
+    # Weighted sum: genre overlap * 0.5 + year proximity * 0.2 + rating closeness * 0.3
+    score = (genre_overlap * 0.5) + (year_proximity * 0.2) + (rating_closeness * 0.3)
+    return score
+
+
+def get_content_recommendations(
+    target_movie: Dict[str, Any],
+    candidate_movies: List[Dict[str, Any]],
+    metric: str = "weighted",
+    limit: int = 10
+) -> List[Dict[str, Any]]:
+    """
+    Get similar movies for a target movie using a specified similarity metric.
+    
+    Args:
+        target_movie: The movie dict to base recommendations on.
+        candidate_movies: A list of candidate movie dicts to evaluate.
+        metric: The similarity metric to use: 'jaccard', 'cosine', or 'weighted'.
+        limit: The maximum number of recommendations to return.
+        
+    Returns:
+        List of movie dicts with similarity_score and match_reason added.
+    """
+    # Pre-process target movie search fields if needed
+    if '_name_lower' not in target_movie:
+        ensure_search_fields(target_movie)
+        
+    target_key = (target_movie['_name_lower'], target_movie.get('year'))
+    
+    # Filter out target movie from candidates
+    candidates = []
+    for m in candidate_movies:
+        if '_name_lower' not in m:
+            ensure_search_fields(m)
+        if (m['_name_lower'], m.get('year')) != target_key:
+            candidates.append(m)
+            
+    if not candidates:
+        return []
+        
+    # Precompute parameters for cosine vector if needed
+    if metric == "cosine":
+        # Get all unique genres across candidates and target
+        all_genres_set = set()
+        for m in candidates + [target_movie]:
+            for g in m.get('all_genres', []):
+                all_genres_set.add(g.lower())
+        all_unique_genres = sorted(list(all_genres_set))
+        
+        years = [m.get('year', 0) for m in candidates + [target_movie] if m.get('year') is not None]
+        min_year = min(years) if years else 1900
+        max_year = max(years) if years else 2026
+        
+        target_vector = build_feature_vector(target_movie, all_unique_genres, min_year, max_year)
+        
+    scored_candidates = []
+    for m in candidates:
+        if metric == "jaccard":
+            genres_a = set(g.lower() for g in target_movie.get('all_genres', []))
+            genres_b = set(g.lower() for g in m.get('all_genres', []))
+            score = compute_jaccard_similarity(genres_a, genres_b)
+            reason = f"Genre similarity: {int(score * 100)}% genre overlap"
+        elif metric == "cosine":
+            m_vector = build_feature_vector(m, all_unique_genres, min_year, max_year)
+            score = compute_cosine_similarity(target_vector, m_vector)
+            reason = f"Feature similarity: {int(score * 100)}% match on attributes"
+        else: # weighted
+            score = compute_weighted_score(target_movie, m)
+            reason = f"Weighted match: genre overlap, year and rating proximity"
+            
+        m_copy = m.copy()
+        m_copy['similarity_score'] = round(score, 4)
+        m_copy['match_reason'] = reason
+        scored_candidates.append(m_copy)
+        
+    scored_candidates.sort(
+        key=lambda x: (x['similarity_score'], x.get('rating', 0.0), x.get('box_office_millions') or 0.0),
+        reverse=True
+    )
+    
+    return scored_candidates[:limit]
+
+
+def get_personalized_content_recommendations(
+    favorite_movies: List[Dict[str, Any]],
+    candidate_movies: List[Dict[str, Any]],
+    metric: str = "weighted",
+    limit: int = 10
+) -> List[Dict[str, Any]]:
+    """
+    Get personalized recommendations based on a user's favorite movies.
+    
+    For each candidate, computes the similarity score against each favorite movie.
+    The highest similarity score is chosen for each candidate.
+    
+    Args:
+        favorite_movies: List of user's favorite movie dicts.
+        candidate_movies: List of candidate movie dicts.
+        metric: The similarity metric to use.
+        limit: The maximum number of recommendations to return.
+        
+    Returns:
+        List of movie dicts with similarity_score and match_reason added.
+    """
+    if not favorite_movies or not candidate_movies:
+        return []
+        
+    # Pre-process search fields
+    for f in favorite_movies:
+        if '_name_lower' not in f:
+            ensure_search_fields(f)
+            
+    fav_keys = {(f['_name_lower'], f.get('year')) for f in favorite_movies}
+    
+    # Filter out candidate movies that are already in favorites
+    candidates = []
+    for m in candidate_movies:
+        if '_name_lower' not in m:
+            ensure_search_fields(m)
+        if (m['_name_lower'], m.get('year')) not in fav_keys:
+            candidates.append(m)
+            
+    if not candidates:
+        return []
+        
+    # Precompute parameters for cosine vector if needed
+    if metric == "cosine":
+        # Get all unique genres across candidates and favorites
+        all_genres_set = set()
+        for m in candidates + favorite_movies:
+            for g in m.get('all_genres', []):
+                all_genres_set.add(g.lower())
+        all_unique_genres = sorted(list(all_genres_set))
+        
+        years = [m.get('year', 0) for m in candidates + favorite_movies if m.get('year') is not None]
+        min_year = min(years) if years else 1900
+        max_year = max(years) if years else 2026
+        
+        fav_vectors = [
+            (f, build_feature_vector(f, all_unique_genres, min_year, max_year))
+            for f in favorite_movies
+        ]
+        
+    scored_candidates = []
+    for m in candidates:
+        best_score = -1.0
+        best_fav = None
+        best_reason = ""
+        
+        # Compare against each favorite movie
+        if metric == "cosine":
+            m_vector = build_feature_vector(m, all_unique_genres, min_year, max_year)
+            for f, f_vector in fav_vectors:
+                score = compute_cosine_similarity(f_vector, m_vector)
+                if score > best_score:
+                    best_score = score
+                    best_fav = f
+                    best_reason = f"Feature similarity: {int(score * 100)}% match with your favorite '{f['name']}'"
+        elif metric == "jaccard":
+            genres_b = set(g.lower() for g in m.get('all_genres', []))
+            for f in favorite_movies:
+                genres_a = set(g.lower() for g in f.get('all_genres', []))
+                score = compute_jaccard_similarity(genres_a, genres_b)
+                if score > best_score:
+                    best_score = score
+                    best_fav = f
+                    best_reason = f"Genre similarity: {int(score * 100)}% genre overlap with your favorite '{f['name']}'"
+        else: # weighted
+            for f in favorite_movies:
+                score = compute_weighted_score(f, m)
+                if score > best_score:
+                    best_score = score
+                    best_fav = f
+                    best_reason = f"Similar to your favorite movie '{f['name']}' ({f.get('year')})"
+                    
+        if best_score >= 0:
+            m_copy = m.copy()
+            m_copy['similarity_score'] = round(best_score, 4)
+            m_copy['match_reason'] = best_reason
+            scored_candidates.append(m_copy)
+            
+    scored_candidates.sort(
+        key=lambda x: (x['similarity_score'], x.get('rating', 0.0), x.get('box_office_millions') or 0.0),
+        reverse=True
+    )
+    
+    return scored_candidates[:limit]
 
 
 def complete_initialization():

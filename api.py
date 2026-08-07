@@ -1594,6 +1594,127 @@ async def recommend_by_title(
         logger.exception("Error in recommend_by_title endpoint")
         raise HTTPException(status_code=500, detail="Internal error")
 
+@app.get("/api/recommend/content/by-title", response_model=RecommendationsResponse)
+@limiter.limit("30/minute")
+async def recommend_content_by_title(
+    request: Request,
+    title: str = Query(..., description="Movie title to base recommendations on"),
+    metric: str = Query("weighted", description="Similarity metric: weighted, jaccard, cosine"),
+    top_n: int = Query(8, ge=1, le=50)
+):
+    """
+    Content-based recommendations using the local dataset (falls back to TMDB for title matching).
+    """
+    try:
+        import movie_recommender as mr
+
+        # 1) Try local dataset match first
+        local_matches = mr.find_matches(title, max_results=5)
+        if local_matches:
+            target = local_matches[0]
+            source = "local"
+        else:
+            # 2) Fallback to TMDB lookup to construct a target movie
+            results = await tmdb_search_movie(title, limit=5)
+            if not results:
+                raise HTTPException(status_code=404, detail="Movie not found (local or TMDB)")
+            m = results[0]
+            target = {
+                "name": m.get("title"),
+                "year": int((m.get("release_date") or "0000")[:4]) if m.get("release_date") else 0,
+                "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in m.get("genre_ids", [])]) if m.get("genre_ids") else "Movie",
+                "box_office_millions": None,
+                "rating": round(m.get("vote_average", 0.0), 1),
+                "category": "TMDB"
+            }
+            mr.ensure_search_fields(target)
+            source = "tmdb"
+
+        # 3) Candidates: use local dataset (movie_recommender.movies)
+        candidates = list(mr.movies)
+        recommendations_raw = mr.get_content_recommendations(target, candidates, metric=metric, limit=top_n)
+
+        recommendations = [
+            RecommendationResponse(
+                movie=MovieResponse(**{k: v for k, v in r.items() if k in {
+                    'id','name','year','category','genre','description','box_office_millions','rating','poster_url'
+                }}),
+                similarity_score=r.get('similarity_score', 0.0),
+                match_reason=r.get('match_reason', '')
+            )
+            for r in recommendations_raw
+        ]
+
+        return RecommendationsResponse(
+            recommendations=recommendations,
+            based_on={"query": title, "matched_source": source, "metric": metric},
+            total_available=len(recommendations)
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error in content-based recommend_by_title endpoint")
+        raise HTTPException(status_code=500, detail="Internal error")
+
+
+@app.get("/api/recommend/content/personalized", response_model=RecommendationsResponse)
+@limiter.limit("30/minute")
+async def personalized_content_recommendations(
+    request: Request,
+    metric: str = Query("weighted", description="Similarity metric: weighted, jaccard, cosine"),
+    top_n: int = Query(10, ge=1, le=50),
+    include_viewed: bool = Query(False, description="Include movies already in user's favorites")
+):
+    """
+    Personalized content-based recommendations using the user's favorites and the local dataset.
+    """
+    user_ip = request.client.host if request.client else "unknown"
+    try:
+        import movie_recommender as mr
+
+        # Load favorites from disk and map to full movie dicts (local favorites only)
+        refresh_favorites_state()
+        favorite_movies = get_favorite_movies()
+        if not favorite_movies:
+            # If no local favorites exist, fall back to TMDB-based personalized recommendations
+            raise HTTPException(status_code=404, detail="No favorites found for user; add favorites first")
+
+        candidates = list(mr.movies)
+
+        recommendations_raw = mr.get_personalized_content_recommendations(favorite_movies, candidates, metric=metric, limit=top_n)
+
+        # Optionally filter out viewed/favorited movies
+        fav_keys = {(f['name'].lower(), f['year']) for f in favorite_movies}
+        filtered = []
+        for r in recommendations_raw:
+            key = (r.get('name', '').lower(), r.get('year'))
+            if not include_viewed and key in fav_keys:
+                continue
+            filtered.append(r)
+
+        recommendations = [
+            RecommendationResponse(
+                movie=MovieResponse(**{k: v for k, v in r.items() if k in {
+                    'id','name','year','category','genre','description','box_office_millions','rating','poster_url'
+                }}),
+                similarity_score=r.get('similarity_score', 0.0),
+                match_reason=r.get('match_reason', '')
+            )
+            for r in filtered
+        ]
+
+        return RecommendationsResponse(
+            recommendations=recommendations,
+            based_on={"source": "local_favorites", "favorites_count": len(favorite_movies), "metric": metric},
+            total_available=len(recommendations)
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error in personalized_content_recommendations endpoint")
+        raise HTTPException(status_code=500, detail="Internal error")
+
+
 @app.get("/api/recommendations", response_model=RecommendationsResponse)
 @limiter.limit("30/minute")
 async def get_personalized_recommendations(

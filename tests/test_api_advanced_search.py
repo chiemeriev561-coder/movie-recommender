@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 import api
 
 client = TestClient(api.app)
@@ -68,8 +68,8 @@ async def test_advanced_search_with_mocked_tmdb():
     ]
 
     with patch.object(api, "TMDB_API_KEY", "fake_key"):
-        with patch("httpx.AsyncClient.get") as mock_get:
-            mock_resp = AsyncMock()
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+            mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.json.return_value = mock_search_data
             mock_get.return_value = mock_resp
