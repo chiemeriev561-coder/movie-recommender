@@ -48,7 +48,8 @@ from movie_recommender import (
     add_favorite, remove_favorite, get_favorite_movies, get_favorite_entries,
     load_favorites, save_favorites, format_movie, serialize_movies,
     expand_dataset_if_needed, compute_weighted_score, get_content_recommendations,
-    get_personalized_content_recommendations, ensure_search_fields
+    get_personalized_content_recommendations, ensure_search_fields,
+    _update_movies_map_if_needed, _movies_map
 )
 
 # Import CSV statistics if available
@@ -2029,8 +2030,7 @@ async def get_personalized_recommendations(
 
         # 1. Get user's favorite movies from local dataset
         fav_keys = get_user_favorite_keys(user_ip)
-        from movie_recommender import _movies_map
-        movie_recommender._update_movies_map_if_needed()
+        _update_movies_map_if_needed()
         
         favorite_movies = []
         for name, year in fav_keys:
@@ -2078,6 +2078,18 @@ async def get_personalized_recommendations(
                 )
 
         # 2. For each favorite, pull TMDB recommendations
+        # Check cache first
+        cache_key = indexed_cache_key("personalized-recommendations", {
+            "user_ip": user_ip,
+            "fav_keys": sorted(list(fav_keys)),
+            "limit": limit,
+            "include_viewed": include_viewed
+        })
+        cached = cache.get(cache_key)
+        if cached is not None:
+            logger.info(f"Returning cached personalized recommendations for user {user_ip}")
+            return RecommendationsResponse.model_validate(cached) if isinstance(cached, dict) else cached
+
         tmdb_candidates = []
         seen_ids = set()
 
@@ -2159,11 +2171,16 @@ async def get_personalized_recommendations(
             "strategy": "TMDB recommendations + content-based re-ranking"
         }
 
-        return RecommendationsResponse(
+        response = RecommendationsResponse(
             recommendations=recommendations,
             based_on=based_on,
             total_available=len(filtered_candidates)
         )
+        
+        # Cache for 30 minutes
+        cache.set(cache_key, response.model_dump(), expire=1800)
+        
+        return response
         
     except HTTPException:
         raise
