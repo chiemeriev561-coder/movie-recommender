@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import json
 import httpx
+import math
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any, Set
 
@@ -46,7 +47,8 @@ limiter = Limiter(key_func=get_remote_address)
 from movie_recommender import (
     add_favorite, remove_favorite, get_favorite_movies, get_favorite_entries,
     load_favorites, save_favorites, format_movie, serialize_movies,
-    expand_dataset_if_needed
+    expand_dataset_if_needed, compute_weighted_score, get_content_recommendations,
+    get_personalized_content_recommendations, ensure_search_fields
 )
 
 # Import CSV statistics if available
@@ -526,6 +528,293 @@ async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10, client: Option
     else:
         async with httpx.AsyncClient(timeout=10.0) as client:
             return await _fetch(client)
+
+
+async def tmdb_get_similar(tmdb_id: int, top_n: int = 10, client: Optional[httpx.AsyncClient] = None) -> List[Dict[str, Any]]:
+    """Get TMDB similar movies for a TMDB movie ID and return formatted movie dicts."""
+    if not TMDB_API_KEY:
+        return []
+    cache_key = indexed_cache_key("tmdb-similar", {"tmdb_id": tmdb_id, "top_n": top_n})
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    async def _fetch(c):
+        try:
+            resp = await c.get(f"https://api.themoviedb.org/3/movie/{tmdb_id}/similar", params={"api_key": TMDB_API_KEY, "page": 1})
+            if resp.status_code != 200:
+                logger.warning("TMDB similar returned status %s for id=%s", resp.status_code, tmdb_id)
+                return []
+            raw = resp.json().get("results", [])[:top_n]
+            formatted = []
+            for r in raw:
+                formatted.append({
+                    "id": r.get("id"),
+                    "name": r.get("title"),
+                    "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+                    "category": "TMDB",
+                    "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
+                    "box_office_millions": None,
+                    "rating": round(r.get("vote_average", 0), 1),
+                    "description": r.get("overview"),
+                    "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
+                })
+            cache.set(cache_key, formatted, expire=86400)
+            return formatted
+        except Exception:
+            logger.exception("Failed to fetch TMDB similar for id=%s", tmdb_id)
+            return []
+
+    if client:
+        return await _fetch(client)
+    else:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            return await _fetch(client)
+
+
+async def tmdb_discover(
+    genre_ids: Optional[List[int]] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    rating_min: Optional[float] = None,
+    sort_by: str = "popularity.desc",
+    page: int = 1,
+    limit: int = 20,
+    client: Optional[httpx.AsyncClient] = None
+) -> List[Dict[str, Any]]:
+    """Discover movies using TMDB discover endpoint with filters."""
+    if not TMDB_API_KEY:
+        return []
+    
+    params: Dict[str, Any] = {
+        "api_key": TMDB_API_KEY,
+        "page": page,
+        "sort_by": sort_by,
+    }
+    
+    if genre_ids:
+        params["with_genres"] = ",".join(map(str, genre_ids))
+    if year_min:
+        params["primary_release_date.gte"] = f"{year_min}-01-01"
+    if year_max:
+        params["primary_release_date.lte"] = f"{year_max}-12-31"
+    if rating_min is not None:
+        params["vote_average.gte"] = rating_min
+    
+    cache_key = indexed_cache_key("tmdb-discover", params)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached[:limit]
+
+    async def _fetch(c):
+        try:
+            resp = await c.get("https://api.themoviedb.org/3/discover/movie", params=params)
+            if resp.status_code != 200:
+                logger.warning("TMDB discover returned status %s", resp.status_code)
+                return []
+            raw = resp.json().get("results", [])[:limit]
+            formatted = []
+            for r in raw:
+                formatted.append({
+                    "id": r.get("id"),
+                    "name": r.get("title"),
+                    "year": int((r.get("release_date") or "0000")[:4]) if r.get("release_date") else 0,
+                    "category": "TMDB",
+                    "genre": ", ".join([TMDB_GENRES.get(g, "Movie") for g in r.get("genre_ids", [])]) if r.get("genre_ids") else "Movie",
+                    "box_office_millions": None,
+                    "rating": round(r.get("vote_average", 0), 1),
+                    "description": r.get("overview"),
+                    "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None,
+                    "tmdb_popularity": r.get("popularity", 0.0),
+                    "tmdb_rank": r.get("vote_count", 0)
+                })
+            cache.set(cache_key, formatted, expire=86400)
+            return formatted
+        except Exception:
+            logger.exception("Failed to fetch TMDB discover")
+            return []
+
+    if client:
+        return await _fetch(client)
+    else:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            return await _fetch(client)
+
+
+def convert_tmdb_to_content_format(tmdb_movie: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert TMDB movie format to the format expected by content functions."""
+    genre_str = tmdb_movie.get("genre", "Movie")
+    all_genres = [g.strip() for g in genre_str.split(",") if g.strip()]
+    
+    converted = {
+        "name": tmdb_movie.get("name", ""),
+        "year": tmdb_movie.get("year", 0),
+        "category": tmdb_movie.get("category", "TMDB"),
+        "genre": genre_str,
+        "all_genres": all_genres,
+        "box_office_millions": tmdb_movie.get("box_office_millions") or 0.0,
+        "rating": tmdb_movie.get("rating", 0.0),
+        "description": tmdb_movie.get("description"),
+        "poster_url": tmdb_movie.get("poster_url"),
+        "id": tmdb_movie.get("id"),
+        "tmdb_popularity": tmdb_movie.get("tmdb_popularity", 0.0),
+        "tmdb_rank": tmdb_movie.get("tmdb_rank", 0)
+    }
+    
+    ensure_search_fields(converted)
+    return converted
+
+
+async def get_hybrid_recommendations(
+    tmdb_id: Optional[int] = None,
+    favorite_movies: Optional[List[Dict[str, Any]]] = None,
+    genre_ids: Optional[List[int]] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    rating_min: Optional[float] = None,
+    limit: int = 20,
+    tmdb_weight: float = 0.4,
+    content_weight: float = 0.6
+) -> List[Dict[str, Any]]:
+    """
+    Get hybrid recommendations combining TMDB data with content-based scoring.
+    
+    Strategy:
+    1. Fetch strong candidate pool from TMDB (recommendations/similar/discover)
+    2. Convert candidates to content function format
+    3. Score with content-based functions
+    4. Blend TMDB rank/popularity with content score
+    5. Return re-ranked list
+    
+    Args:
+        tmdb_id: Optional TMDB movie ID to base recommendations on
+        favorite_movies: Optional list of user's favorite movies for personalization
+        genre_ids: Optional genre IDs for discover endpoint
+        year_min: Optional minimum year filter
+        year_max: Optional maximum year filter
+        rating_min: Optional minimum rating filter
+        limit: Maximum number of recommendations to return
+        tmdb_weight: Weight for TMDB popularity/rank (0.0-1.0)
+        content_weight: Weight for content-based score (0.0-1.0)
+        
+    Returns:
+        List of movie dicts with hybrid_score, tmdb_score, and content_score added
+    """
+    if not TMDB_API_KEY:
+        logger.warning("TMDB API key not configured, returning empty hybrid recommendations")
+        return []
+    
+    candidates = []
+    
+    # 1. Fetch candidate pool from TMDB
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        # If tmdb_id provided, get recommendations and similar movies
+        if tmdb_id:
+            recs = await tmdb_get_recommendations(tmdb_id, top_n=15, client=client)
+            similar = await tmdb_get_similar(tmdb_id, top_n=15, client=client)
+            candidates.extend(recs)
+            candidates.extend(similar)
+        
+        # Always supplement with discover results for diversity
+        discover_results = await tmdb_discover(
+            genre_ids=genre_ids,
+            year_min=year_min,
+            year_max=year_max,
+            rating_min=rating_min,
+            sort_by="popularity.desc",
+            page=1,
+            limit=30,
+            client=client
+        )
+        candidates.extend(discover_results)
+    
+    # Deduplicate by TMDB ID
+    unique_candidates = {c.get("id"): c for c in candidates if c.get("id")}.values()
+    candidates_list = list(unique_candidates)
+    
+    if not candidates_list:
+        return []
+    
+    # 2. Convert to content function format
+    content_candidates = [convert_tmdb_to_content_format(c) for c in candidates_list]
+    
+    # 3. Score with content-based functions
+    if favorite_movies:
+        # Personalized scoring based on favorites
+        scored = get_personalized_content_recommendations(
+            favorite_movies=favorite_movies,
+            candidate_movies=content_candidates,
+            metric="weighted",
+            limit=len(content_candidates)
+        )
+    elif tmdb_id:
+        # Find the target movie in candidates for similarity scoring
+        target_movie = next((c for c in content_candidates if c.get("id") == tmdb_id), None)
+        if target_movie:
+            scored = get_content_recommendations(
+                target_movie=target_movie,
+                candidate_movies=content_candidates,
+                metric="weighted",
+                limit=len(content_candidates)
+            )
+        else:
+            # Fallback: score all candidates against each other
+            scored = []
+            for c in content_candidates:
+                # Use average similarity against other candidates
+                other_candidates = [m for m in content_candidates if m.get("id") != c.get("id")]
+                if other_candidates:
+                    avg_score = sum(compute_weighted_score(c, m) for m in other_candidates[:10]) / min(10, len(other_candidates))
+                else:
+                    avg_score = 0.5
+                c_copy = c.copy()
+                c_copy['similarity_score'] = round(avg_score, 4)
+                c_copy['match_reason'] = "Content-based similarity"
+                scored.append(c_copy)
+    else:
+        # No target, use popularity-based content scoring
+        scored = []
+        for c in content_candidates:
+            c_copy = c.copy()
+            # Use rating and genre diversity as content signals
+            c_copy['similarity_score'] = round(c.get('rating', 0) / 10.0, 4)
+            c_copy['match_reason'] = "Rating-based content score"
+            scored.append(c_copy)
+    
+    # 4. Blend TMDB rank/popularity with content score
+    final_results = []
+    for movie in scored:
+        tmdb_score = 0.0
+        
+        # Normalize TMDB popularity (log scale to handle outliers)
+        popularity = movie.get("tmdb_popularity", 0.0)
+        if popularity > 0:
+            tmdb_score = min(1.0, math.log(popularity + 1) / math.log(1000))
+        
+        # Normalize TMDB vote count
+        vote_count = movie.get("tmdb_rank", 0)
+        if vote_count > 0:
+            rank_score = min(1.0, math.log(vote_count + 1) / math.log(10000))
+            tmdb_score = (tmdb_score + rank_score) / 2
+        
+        content_score = movie.get("similarity_score", 0.0)
+        
+        # Blend scores
+        hybrid_score = (tmdb_score * tmdb_weight) + (content_score * content_weight)
+        
+        movie_copy = movie.copy()
+        movie_copy['hybrid_score'] = round(hybrid_score, 4)
+        movie_copy['tmdb_score'] = round(tmdb_score, 4)
+        movie_copy['content_score'] = round(content_score, 4)
+        final_results.append(movie_copy)
+    
+    # 5. Sort by hybrid score and return
+    final_results.sort(
+        key=lambda x: (x['hybrid_score'], x.get('rating', 0.0), x.get('tmdb_popularity', 0.0)),
+        reverse=True
+    )
+    
+    return final_results[:limit]
 
 async def get_person_id(name: str) -> Optional[int]:
     """Get TMDB person ID from name"""
@@ -1839,6 +2128,110 @@ async def get_personalized_recommendations(
     except Exception as e:
         logger.exception("Error generating TMDB-based personalized recommendations")
         raise HTTPException(status_code=500, detail="Internal error")
+
+@app.get("/api/recommendations/hybrid", response_model=RecommendationsResponse)
+@limiter.limit("20/minute")
+async def get_hybrid_recommendations_endpoint(
+    request: Request,
+    tmdb_id: Optional[int] = Query(None, description="TMDB movie ID to base recommendations on"),
+    genres: Optional[str] = Query(None, description="Comma-separated genre names"),
+    year_min: Optional[int] = Query(None, description="Minimum release year"),
+    year_max: Optional[int] = Query(None, description="Maximum release year"),
+    rating_min: Optional[float] = Query(None, description="Minimum rating"),
+    limit: int = Query(20, ge=1, le=50),
+    tmdb_weight: float = Query(0.4, ge=0.0, le=1.0, description="Weight for TMDB popularity (0.0-1.0)"),
+    content_weight: float = Query(0.6, ge=0.0, le=1.0, description="Weight for content score (0.0-1.0)")
+):
+    """
+    Hybrid recommendations combining TMDB data with content-based scoring.
+    
+    This endpoint:
+    1. Fetches candidates from TMDB (recommendations/similar/discover)
+    2. Converts to content function format
+    3. Scores with content-based functions
+    4. Blends TMDB rank + content score
+    5. Returns re-ranked list
+    
+    Examples:
+    - /api/recommendations/hybrid?tmdb_id=550 (based on Fight Club)
+    - /api/recommendations/hybrid?genres=Action,Sci-Fi&year_min=2010
+    - /api/recommendations/hybrid?tmdb_weight=0.3&content_weight=0.7
+    """
+    user_ip = request.client.host if request.client else "unknown"
+    
+    if not TMDB_API_KEY:
+        raise HTTPException(status_code=503, detail="TMDB integration is not configured")
+    
+    try:
+        # Parse genres if provided
+        genre_list = [g.strip() for g in genres.split(',')] if genres else []
+        genre_ids = get_genre_ids_from_names(genre_list) if genre_list else []
+        
+        # Get user's favorite movies for personalization
+        fav_keys = get_user_favorite_keys(user_ip)
+        favorite_movies = []
+        if fav_keys:
+            from movie_recommender import movies as local_movies
+            from movie_recommender import _movies_map
+            movie_recommender._update_movies_map_if_needed()
+            for name, year in fav_keys:
+                key = (name.lower(), year)
+                if key in _movies_map:
+                    favorite_movies.append(_movies_map[key])
+        
+        # Get hybrid recommendations
+        hybrid_recs = await get_hybrid_recommendations(
+            tmdb_id=tmdb_id,
+            favorite_movies=favorite_movies if favorite_movies else None,
+            genre_ids=genre_ids if genre_ids else None,
+            year_min=year_min,
+            year_max=year_max,
+            rating_min=rating_min,
+            limit=limit,
+            tmdb_weight=tmdb_weight,
+            content_weight=content_weight
+        )
+        
+        # Convert to RecommendationsResponse format
+        recommendations = []
+        for rec in hybrid_recs:
+            recommendations.append({
+                "movie": {
+                    "id": rec.get("id"),
+                    "name": rec.get("name"),
+                    "year": rec.get("year"),
+                    "category": rec.get("category"),
+                    "genre": rec.get("genre"),
+                    "description": rec.get("description"),
+                    "box_office_millions": rec.get("box_office_millions"),
+                    "rating": rec.get("rating"),
+                    "poster_url": rec.get("poster_url")
+                },
+                "similarity_score": rec.get("hybrid_score", 0.0),
+                "match_reason": f"Hybrid: TMDB score {rec.get('tmdb_score', 0.0):.2f} + Content score {rec.get('content_score', 0.0):.2f}"
+            })
+        
+        based_on = {
+            "tmdb_id": tmdb_id,
+            "genres": genre_list,
+            "year_range": {"min": year_min, "max": year_max},
+            "rating_min": rating_min,
+            "weights": {"tmdb": tmdb_weight, "content": content_weight},
+            "favorites_count": len(favorite_movies)
+        }
+        
+        return RecommendationsResponse(
+            recommendations=recommendations,
+            based_on=based_on,
+            total_available=len(hybrid_recs)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error in hybrid recommendations endpoint")
+        raise HTTPException(status_code=500, detail="Internal error")
+
 
 @app.get("/api/recommendations/discovery", response_model=RecommendationsResponse)
 @limiter.limit("20/minute")
