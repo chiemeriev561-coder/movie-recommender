@@ -13,7 +13,7 @@ import math
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any, Set
 
-from fastapi import FastAPI, HTTPException, Query, status, Response
+from fastapi import FastAPI, HTTPException, Query, Path, status, Response
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -72,6 +72,16 @@ TMDB_GENRES = {
     27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Sci-Fi",
     10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western"
 }
+
+# TV uses a different set of genre IDs for several categories.
+TMDB_TV_GENRES = {
+    10759: "Action & Adventure", 16: "Animation", 35: "Comedy",
+    80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
+    10762: "Kids", 9648: "Mystery", 10763: "News", 10764: "Reality",
+    10765: "Sci-Fi & Fantasy", 10766: "Soap", 10767: "Talk",
+    10768: "War & Politics", 37: "Western"
+}
+GENRE_NAME_TO_TV_ID = {name.lower(): genre_id for genre_id, name in TMDB_TV_GENRES.items()}
 
 # Reverse mapping: genre name -> TMDB ID
 GENRE_NAME_TO_ID = {name.lower(): id for id, name in TMDB_GENRES.items()}
@@ -975,6 +985,307 @@ async def generate_sitemap():
     
     # Return as XML
     return Response(content=xml, media_type="application/xml")
+
+# --- TV SERIES API ---
+class Season(BaseModel):
+    season_number: int
+    episode_count: int
+    name: str
+    overview: Optional[str] = None
+    poster_url: Optional[str] = None
+    air_date: Optional[str] = None
+
+class Episode(BaseModel):
+    id: int
+    episode_number: int
+    season_number: int
+    name: str
+    overview: Optional[str] = None
+    still_url: Optional[str] = None
+    air_date: Optional[str] = None
+    runtime: Optional[int] = None
+    vote_average: Optional[float] = None
+
+class TVSeriesResponse(BaseModel):
+    id: int
+    name: str
+    original_name: Optional[str] = None
+    overview: Optional[str] = None
+    genres: List[str] = Field(default_factory=list)
+    first_air_date: Optional[str] = None
+    last_air_date: Optional[str] = None
+    number_of_seasons: int = 0
+    number_of_episodes: int = 0
+    status: Optional[str] = None
+    rating: float = 0.0
+    poster_url: Optional[str] = None
+    backdrop_url: Optional[str] = None
+    seasons: List[Season] = Field(default_factory=list)
+    credits: Optional[Dict[str, Any]] = None
+    streaming_providers: Optional[Dict[str, Any]] = None
+    similar: Optional[List[Dict[str, Any]]] = None
+    recommendations: Optional[List[Dict[str, Any]]] = None
+
+class TVSeriesSearchResponse(BaseModel):
+    search_results: List[TVSeriesResponse]
+    recommendations: List[TVSeriesResponse] = Field(default_factory=list)
+    total_results: int
+    source: str = "TMDB"
+
+class EpisodeStreamResponse(BaseModel):
+    series_id: int
+    season_number: int
+    episode_number: int
+    stream_url: str
+    provider: str
+
+
+def _tmdb_image(path: Optional[str], size: str = "w500") -> Optional[str]:
+    return f"https://image.tmdb.org/t/p/{size}{path}" if path else None
+
+
+def _tv_genres(item: Dict[str, Any]) -> List[str]:
+    values = item.get("genres", [])
+    if values and isinstance(values[0], dict):
+        return [str(value.get("name")) for value in values if value.get("name")]
+    return [TMDB_TV_GENRES.get(value, "Unknown") for value in values]
+
+
+def _format_tv_summary(item: Dict[str, Any], *, include_details: bool = False) -> Dict[str, Any]:
+    result = {
+        "id": item.get("id"),
+        "name": item.get("name", ""),
+        "original_name": item.get("original_name"),
+        "overview": item.get("overview"),
+        "genres": _tv_genres(item),
+        "first_air_date": item.get("first_air_date"),
+        "last_air_date": item.get("last_air_date"),
+        "number_of_seasons": item.get("number_of_seasons", 0) or 0,
+        "number_of_episodes": item.get("number_of_episodes", 0) or 0,
+        "status": item.get("status"),
+        "rating": round(float(item.get("vote_average") or 0), 1),
+        "poster_url": _tmdb_image(item.get("poster_path")),
+        "backdrop_url": _tmdb_image(item.get("backdrop_path"), "w1280"),
+    }
+    if include_details:
+        result["seasons"] = [_format_season(season) for season in item.get("seasons", [])]
+        credits = item.get("credits") or {}
+        result["credits"] = {
+            "cast": credits.get("cast", [])[:20],
+            "crew": credits.get("crew", [])[:20],
+        }
+        result["streaming_providers"] = (item.get("watch/providers") or {}).get("results", {})
+    return result
+
+
+def _format_season(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "season_number": item.get("season_number", 0),
+        "episode_count": item.get("episode_count", 0) or 0,
+        "name": item.get("name") or f"Season {item.get('season_number', 0)}",
+        "overview": item.get("overview"),
+        "poster_url": _tmdb_image(item.get("poster_path")),
+        "air_date": item.get("air_date"),
+    }
+
+
+def _format_episode(item: Dict[str, Any], season_number: int) -> Dict[str, Any]:
+    return {
+        "id": item.get("id"),
+        "episode_number": item.get("episode_number", 0),
+        "season_number": season_number,
+        "name": item.get("name") or f"Episode {item.get('episode_number', 0)}",
+        "overview": item.get("overview"),
+        "still_url": _tmdb_image(item.get("still_path")),
+        "air_date": item.get("air_date"),
+        "runtime": item.get("runtime"),
+        "vote_average": round(float(item.get("vote_average") or 0), 1),
+    }
+
+
+async def _tmdb_tv_get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if not TMDB_API_KEY:
+        raise HTTPException(status_code=503, detail="TMDB integration is not configured")
+    request_params = {"api_key": TMDB_API_KEY, **(params or {})}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(f"https://api.themoviedb.org/3{path}", params=request_params)
+    except httpx.RequestError:
+        logger.exception("TMDB TV request failed: %s", path)
+        raise HTTPException(status_code=502, detail="Failed to reach TMDB")
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="TV series not found on TMDB")
+    if response.status_code != 200:
+        logger.warning("TMDB TV request returned %s for %s", response.status_code, path)
+        raise HTTPException(status_code=502, detail="TMDB TV request failed")
+    try:
+        return response.json()
+    except ValueError:
+        raise HTTPException(status_code=502, detail="Invalid response from TMDB")
+
+
+async def _fetch_tv_season(series_id: int, season_number: int) -> Dict[str, Any]:
+    cache_key = f"tv-season:v2:{series_id}:{season_number}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    data = await _tmdb_tv_get(f"/tv/{series_id}/season/{season_number}")
+    data["episodes"] = [_format_episode(ep, season_number) for ep in data.get("episodes", [])]
+    cache.set(cache_key, data, expire=86400)
+    return data
+
+
+@app.get("/api/tv/trending", response_model=List[TVSeriesResponse])
+@limiter.limit("20/minute")
+async def get_trending_tv(request: Request, genre: Optional[str] = Query(None)):
+    params: Dict[str, Any] = {"page": 1}
+    if genre:
+        genre_id = GENRE_NAME_TO_TV_ID.get(genre.strip().lower())
+        if genre_id:
+            params["with_genres"] = genre_id
+    cache_key = indexed_cache_key("tv-trending", params)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    data = await _tmdb_tv_get("/discover/tv", {**params, "sort_by": "popularity.desc"})
+    result = [_format_tv_summary(item) for item in data.get("results", [])[:20]]
+    cache.set(cache_key, result, expire=1800)
+    return result
+
+
+@app.get("/api/tv/search", response_model=TVSeriesSearchResponse)
+@limiter.limit("30/minute")
+async def search_tv_series(
+    request: Request,
+    query: Optional[str] = Query(None, max_length=100),
+    genres: Optional[str] = Query(None),
+    year_min: Optional[int] = Query(None, ge=1900, le=2100),
+    year_max: Optional[int] = Query(None, ge=1900, le=2100),
+    rating_min: Optional[float] = Query(None, ge=0, le=10),
+    rating_max: Optional[float] = Query(None, ge=0, le=10),
+    sort_by: str = Query("popularity.desc"),
+):
+    if year_min and year_max and year_min > year_max:
+        raise HTTPException(status_code=422, detail="year_min must not exceed year_max")
+    if rating_min is not None and rating_max is not None and rating_min > rating_max:
+        raise HTTPException(status_code=422, detail="rating_min must not exceed rating_max")
+    genre_ids = [GENRE_NAME_TO_TV_ID[g.strip().lower()] for g in (genres or "").split(",") if g.strip().lower() in GENRE_NAME_TO_TV_ID]
+    params: Dict[str, Any] = {"page": 1, "include_adult": False}
+    if query and query.strip():
+        path = "/search/tv"
+        params["query"] = query.strip()
+    else:
+        path = "/discover/tv"
+        if genre_ids: params["with_genres"] = ",".join(map(str, genre_ids))
+        if year_min: params["first_air_date.gte"] = f"{year_min}-01-01"
+        if year_max: params["first_air_date.lte"] = f"{year_max}-12-31"
+        if rating_min is not None: params["vote_average.gte"] = rating_min
+        if rating_max is not None: params["vote_average.lte"] = rating_max
+        params["sort_by"] = sort_by
+    cache_key = indexed_cache_key("tv-search", {"path": path, **params})
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    data = await _tmdb_tv_get(path, params)
+    results = [_format_tv_summary(item) for item in data.get("results", [])[:20]]
+    payload = {"search_results": results, "recommendations": [], "total_results": data.get("total_results", len(results)), "source": "TMDB"}
+    cache.set(cache_key, payload, expire=3600)
+    return payload
+
+
+@app.get("/api/tv/{series_id}", response_model=TVSeriesResponse)
+@limiter.limit("30/minute")
+async def get_tv_series_details(request: Request, series_id: int = Path(..., ge=1)):
+    cache_key = f"tv-details:v2:{series_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    data = await _tmdb_tv_get(f"/tv/{series_id}", {"append_to_response": "credits,watch/providers"})
+    result = _format_tv_summary(data, include_details=True)
+    cache.set(cache_key, result, expire=86400)
+    return result
+
+
+
+@app.get("/api/tv/{series_id}/stream", response_model=EpisodeStreamResponse)
+@limiter.limit("30/minute")
+async def get_tv_stream(request: Request, series_id: int = Path(..., ge=1)):
+    """Return the series-level player URL used by the frontend.
+
+    Episode playback should use the season/episode stream endpoint below.
+    """
+    return EpisodeStreamResponse(series_id=series_id, season_number=0, episode_number=0, stream_url=f"https://vidlink.pro/tv/{series_id}", provider="VidLink")
+
+@app.get("/api/tv/{series_id}/seasons", response_model=List[Season])
+@limiter.limit("30/minute")
+async def get_tv_seasons(request: Request, series_id: int = Path(..., ge=1)):
+    details = await _tmdb_tv_get(f"/tv/{series_id}")
+    return [_format_season(season) for season in details.get("seasons", [])]
+
+
+@app.get("/api/tv/{series_id}/season/{season_number}", response_model=Dict[str, Any])
+@limiter.limit("30/minute")
+async def get_tv_season(request: Request, series_id: int = Path(..., ge=1), season_number: int = Path(..., ge=0)):
+    return await _fetch_tv_season(series_id, season_number)
+
+
+@app.get("/api/tv/{series_id}/episodes", response_model=List[Episode])
+@limiter.limit("30/minute")
+async def get_tv_episodes(request: Request, series_id: int = Path(..., ge=1), season: Optional[int] = Query(None, ge=0)):
+    if season is not None:
+        return (await _fetch_tv_season(series_id, season)).get("episodes", [])
+    details = await _tmdb_tv_get(f"/tv/{series_id}")
+    seasons = [s.get("season_number", 0) for s in details.get("seasons", [])]
+    season_data = await asyncio.gather(*(_fetch_tv_season(series_id, number) for number in seasons), return_exceptions=True)
+    return [episode for data in season_data if isinstance(data, dict) for episode in data.get("episodes", [])]
+
+
+@app.get("/api/tv/{series_id}/season/{season_number}/episode/{episode_number}/stream", response_model=EpisodeStreamResponse)
+@limiter.limit("30/minute")
+async def get_episode_stream(
+    request: Request,
+    series_id: int = Path(..., ge=1),
+    season_number: int = Path(..., ge=0),
+    episode_number: int = Path(..., ge=1),
+):
+    stream_url = f"https://vidlink.pro/tv/{series_id}/{season_number}/{episode_number}"
+    return EpisodeStreamResponse(series_id=series_id, season_number=season_number, episode_number=episode_number, stream_url=stream_url, provider="VidLink")
+
+
+@app.get("/api/tv/{series_id}/recommendations", response_model=List[TVSeriesResponse])
+@limiter.limit("30/minute")
+async def get_tv_recommendations(request: Request, series_id: int = Path(..., ge=1), top_n: int = Query(10, ge=1, le=30)):
+    cache_key = f"tv-recommendations:v2:{series_id}:{top_n}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    recommendations, similar = await asyncio.gather(
+        _tmdb_tv_get(f"/tv/{series_id}/recommendations", {"page": 1}),
+        _tmdb_tv_get(f"/tv/{series_id}/similar", {"page": 1}),
+    )
+    result, seen = [], set()
+    for item in recommendations.get("results", []) + similar.get("results", []):
+        if item.get("id") and item["id"] not in seen:
+            seen.add(item["id"])
+            result.append(_format_tv_summary(item))
+            if len(result) >= top_n:
+                break
+    cache.set(cache_key, result, expire=86400)
+    return result
+
+
+def get_tv_features(series: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract normalized features for TV content-based similarity matching."""
+    return {
+        "genres": set(series.get("genres", [])),
+        "actors": {person.get("name") for person in (series.get("credits", {}).get("cast", []) if isinstance(series.get("credits"), dict) else series.get("cast", []))[:5] if isinstance(person, dict) and person.get("name")},
+        "director": series.get("created_by", []),
+        "year": int((series.get("first_air_date") or "0000")[:4]),
+        "status": series.get("status", ""),
+        "seasons": series.get("number_of_seasons", 0),
+        "keywords": set(series.get("keywords", [])),
+    }
+
 
 @app.get("/api/movies/trending")
 @limiter.limit("20/minute")
