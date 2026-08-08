@@ -290,6 +290,77 @@ GET /api/statistics
 
 Get detailed statistics about movie dataset (sourced from TMDB).
 
+### 13. Hybrid Recommendations
+
+```
+GET /api/recommendations/hybrid
+```
+
+Return TMDB candidates re-ranked with content-based similarity. Candidates
+come from TMDB recommendations/similar movies when `tmdb_id` is provided and
+are supplemented with TMDB discover results. If the caller has favorites,
+content scoring is personalized against those favorites.
+
+**Query Parameters:**
+
+- `tmdb_id` (optional): TMDB movie ID to use as the recommendation source.
+- `genres` (optional): Comma-separated genre names, for example `Action,Sci-Fi`.
+- `year_min`, `year_max` (optional): Release-year bounds.
+- `rating_min` (optional): Minimum TMDB rating.
+- `limit` (optional): Number of results, 1-50 (default: 20).
+- `tmdb_weight` (optional): TMDB popularity/rank weight, 0.0-1.0 (default: 0.4).
+- `content_weight` (optional): Content-similarity weight, 0.0-1.0 (default: 0.6).
+
+The final score is:
+
+```
+hybrid_score = (tmdb_score * tmdb_weight) + (content_score * content_weight)
+```
+
+Both scores are normalized to approximately 0-1. The response's
+`similarity_score` contains the hybrid score, and `match_reason` includes the
+TMDB and content components.
+
+**Example:**
+
+```bash
+curl "http://localhost:8000/api/recommendations/hybrid?tmdb_id=550&limit=10&tmdb_weight=0.3&content_weight=0.7"
+```
+
+**Caching:**
+
+Completed hybrid responses are cached for 30 minutes. The cache key includes
+the movie, filters, limit, both weights, and the requesting user's favorite
+movies, so changing any scoring input creates a fresh result.
+
+**Response shape:**
+
+```json
+{
+  "recommendations": [
+    {
+      "movie": {
+        "id": 680,
+        "name": "Pulp Fiction",
+        "year": 1994,
+        "category": "TMDB",
+        "genre": "Crime, Drama",
+        "rating": 8.5,
+        "poster_url": "https://image.tmdb.org/t/p/w500/example.jpg"
+      },
+      "similarity_score": 0.7421,
+      "match_reason": "Hybrid: TMDB score 0.68 + Content score 0.78"
+    }
+  ],
+  "based_on": {
+    "tmdb_id": 550,
+    "weights": {"tmdb": 0.3, "content": 0.7},
+    "favorites_count": 0
+  },
+  "total_available": 1
+}
+```
+
 ## Data Models
 
 ### Movie Response

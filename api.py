@@ -2580,6 +2580,30 @@ async def get_hybrid_recommendations_endpoint(
                 key = (name.lower(), year)
                 if key in _movies_map:
                     favorite_movies.append(_movies_map[key])
+
+        # Cache the complete response, not just the TMDB candidate calls. The
+        # favorites are part of the key because they change personalized
+        # content scores. Sort them so the key is stable regardless of set
+        # iteration order.
+        hybrid_cache_key = indexed_cache_key("hybrid-recommendations", {
+            "tmdb_id": tmdb_id,
+            "genres": genre_list,
+            "genre_ids": genre_ids,
+            "year_min": year_min,
+            "year_max": year_max,
+            "rating_min": rating_min,
+            "limit": limit,
+            "tmdb_weight": tmdb_weight,
+            "content_weight": content_weight,
+            "favorite_keys": sorted(
+                [(name, year) for name, year in fav_keys],
+                key=lambda item: (str(item[0]).lower(), item[1]),
+            ),
+        })
+        cached_response = cache.get(hybrid_cache_key)
+        if cached_response is not None:
+            logger.info("Returning cached hybrid recommendations")
+            return RecommendationsResponse.model_validate(cached_response)
         
         # Get hybrid recommendations
         hybrid_recs = await get_hybrid_recommendations(
@@ -2622,11 +2646,16 @@ async def get_hybrid_recommendations_endpoint(
             "favorites_count": len(favorite_movies)
         }
         
-        return RecommendationsResponse(
+        response = RecommendationsResponse(
             recommendations=recommendations,
             based_on=based_on,
             total_available=len(hybrid_recs)
         )
+        # Hybrid scoring is personalized and relatively expensive, so keep
+        # the assembled response for 30 minutes. A changed favorites set or
+        # any changed request parameter produces a different key above.
+        cache.set(hybrid_cache_key, response.model_dump(), expire=1800)
+        return response
         
     except HTTPException:
         raise
