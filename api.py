@@ -43,14 +43,46 @@ logger = logging.getLogger(__name__)
 # Initialize Limiter for rate limiting
 limiter = Limiter(key_func=get_remote_address)
 
-# Import the existing movie recommender functionality
-from movie_recommender import (
-    add_favorite, remove_favorite, get_favorite_movies, get_favorite_entries,
-    load_favorites, save_favorites, format_movie, serialize_movies,
-    expand_dataset_if_needed, compute_weighted_score, get_content_recommendations,
-    get_personalized_content_recommendations, ensure_search_fields,
-    _update_movies_map_if_needed, _movies_map
-)
+# Import the existing movie recommender functionality (robust to import contexts)
+try:
+    from movie_recommender import (
+        add_favorite, remove_favorite, get_favorite_movies, get_favorite_entries,
+        load_favorites, save_favorites, format_movie, serialize_movies,
+        expand_dataset_if_needed, compute_weighted_score, get_content_recommendations,
+        get_personalized_content_recommendations, ensure_search_fields,
+        _update_movies_map_if_needed, _movies_map
+    )
+except Exception:
+    # Fallback: load the module by file path so api.py works even when the package
+    # import context doesn't include the repository root on sys.path.
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    module_path = Path(__file__).parent / "movie_recommender.py"
+    if module_path.exists():
+        spec = importlib.util.spec_from_file_location("movie_recommender", str(module_path))
+        movie_recommender = importlib.util.module_from_spec(spec)
+        sys.modules["movie_recommender"] = movie_recommender
+        spec.loader.exec_module(movie_recommender)
+        # Export the expected symbols into this module's namespace
+        add_favorite = movie_recommender.add_favorite
+        remove_favorite = movie_recommender.remove_favorite
+        get_favorite_movies = movie_recommender.get_favorite_movies
+        get_favorite_entries = movie_recommender.get_favorite_entries
+        load_favorites = movie_recommender.load_favorites
+        save_favorites = movie_recommender.save_favorites
+        format_movie = movie_recommender.format_movie
+        serialize_movies = movie_recommender.serialize_movies
+        expand_dataset_if_needed = getattr(movie_recommender, 'expand_dataset_if_needed', None)
+        compute_weighted_score = getattr(movie_recommender, 'compute_weighted_score', None)
+        get_content_recommendations = getattr(movie_recommender, 'get_content_recommendations', None)
+        get_personalized_content_recommendations = getattr(movie_recommender, 'get_personalized_content_recommendations', None)
+        ensure_search_fields = getattr(movie_recommender, 'ensure_search_fields', None)
+        _update_movies_map_if_needed = getattr(movie_recommender, '_update_movies_map_if_needed', None)
+        _movies_map = getattr(movie_recommender, '_movies_map', {})
+    else:
+        raise
 
 # Import CSV statistics if available
 try:
