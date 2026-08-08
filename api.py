@@ -45,6 +45,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 # Import the existing movie recommender functionality (robust to import contexts)
 try:
+    import movie_recommender
     from movie_recommender import (
         add_favorite, remove_favorite, get_favorite_movies, get_favorite_entries,
         load_favorites, save_favorites, format_movie, serialize_movies,
@@ -2573,8 +2574,6 @@ async def get_hybrid_recommendations_endpoint(
         fav_keys = get_user_favorite_keys(user_ip)
         favorite_movies = []
         if fav_keys:
-            from movie_recommender import movies as local_movies
-            from movie_recommender import _movies_map
             movie_recommender._update_movies_map_if_needed()
             for name, year in fav_keys:
                 key = (name.lower(), year)

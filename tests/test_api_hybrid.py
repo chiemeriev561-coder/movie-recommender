@@ -1,5 +1,5 @@
 import math
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -86,5 +86,27 @@ def test_hybrid_endpoint_caches_final_response_per_scoring_inputs(monkeypatch):
         assert changed_weight.status_code == 200
         assert second.json() == first.json()
         assert generate.await_count == 2
+    finally:
+        api.cache.clear()
+
+
+def test_hybrid_endpoint_loads_favorite_movies(monkeypatch):
+    api.cache.clear()
+    monkeypatch.setattr(api, "TMDB_API_KEY", "test-key")
+    monkeypatch.setattr(api, "get_user_favorite_keys", lambda user_ip: {("Inception", 2010)})
+
+    favorite = {"name": "Inception", "year": 2010, "genre": "Sci-Fi"}
+    monkeypatch.setattr(api.movie_recommender, "_movies_map", {("inception", 2010): favorite})
+    update_map = Mock()
+    monkeypatch.setattr(api.movie_recommender, "_update_movies_map_if_needed", update_map)
+    generate = AsyncMock(return_value=[])
+    monkeypatch.setattr(api, "get_hybrid_recommendations", generate)
+
+    try:
+        response = TestClient(api.app).get("/api/recommendations/hybrid?tmdb_id=123")
+
+        assert response.status_code == 200
+        assert generate.await_args.kwargs["favorite_movies"] == [favorite]
+        update_map.assert_called_once_with()
     finally:
         api.cache.clear()
