@@ -1226,87 +1226,6 @@ async def search_tv_series(
     return payload
 
 
-@app.get("/api/tv/{series_id}", response_model=TVSeriesResponse)
-@limiter.limit("30/minute")
-async def get_tv_series_details(request: Request, series_id: int = Path(..., ge=1)):
-    cache_key = f"tv-details:v2:{series_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-    data = await _tmdb_tv_get(f"/tv/{series_id}", {"append_to_response": "credits,watch/providers"})
-    result = _format_tv_summary(data, include_details=True)
-    cache.set(cache_key, result, expire=86400)
-    return result
-
-
-
-@app.get("/api/tv/{series_id}/stream", response_model=EpisodeStreamResponse)
-@limiter.limit("30/minute")
-async def get_tv_stream(request: Request, series_id: int = Path(..., ge=1)):
-    """Return the series-level player URL used by the frontend.
-
-    Episode playback should use the season/episode stream endpoint below.
-    """
-    return EpisodeStreamResponse(series_id=series_id, season_number=0, episode_number=0, stream_url=f"https://vidlink.pro/tv/{series_id}", provider="VidLink")
-
-@app.get("/api/tv/{series_id}/seasons", response_model=List[Season])
-@limiter.limit("30/minute")
-async def get_tv_seasons(request: Request, series_id: int = Path(..., ge=1)):
-    details = await _tmdb_tv_get(f"/tv/{series_id}")
-    return [_format_season(season) for season in details.get("seasons", [])]
-
-
-@app.get("/api/tv/{series_id}/season/{season_number}", response_model=Dict[str, Any])
-@limiter.limit("30/minute")
-async def get_tv_season(request: Request, series_id: int = Path(..., ge=1), season_number: int = Path(..., ge=0)):
-    return await _fetch_tv_season(series_id, season_number)
-
-
-@app.get("/api/tv/{series_id}/episodes", response_model=List[Episode])
-@limiter.limit("30/minute")
-async def get_tv_episodes(request: Request, series_id: int = Path(..., ge=1), season: Optional[int] = Query(None, ge=0)):
-    if season is not None:
-        return (await _fetch_tv_season(series_id, season)).get("episodes", [])
-    details = await _tmdb_tv_get(f"/tv/{series_id}")
-    seasons = [s.get("season_number", 0) for s in details.get("seasons", [])]
-    season_data = await asyncio.gather(*(_fetch_tv_season(series_id, number) for number in seasons), return_exceptions=True)
-    return [episode for data in season_data if isinstance(data, dict) for episode in data.get("episodes", [])]
-
-
-@app.get("/api/tv/{series_id}/season/{season_number}/episode/{episode_number}/stream", response_model=EpisodeStreamResponse)
-@limiter.limit("30/minute")
-async def get_episode_stream(
-    request: Request,
-    series_id: int = Path(..., ge=1),
-    season_number: int = Path(..., ge=0),
-    episode_number: int = Path(..., ge=1),
-):
-    stream_url = f"https://vidlink.pro/tv/{series_id}/{season_number}/{episode_number}"
-    return EpisodeStreamResponse(series_id=series_id, season_number=season_number, episode_number=episode_number, stream_url=stream_url, provider="VidLink")
-
-
-@app.get("/api/tv/{series_id}/recommendations", response_model=List[TVSeriesResponse])
-@limiter.limit("30/minute")
-async def get_tv_recommendations(request: Request, series_id: int = Path(..., ge=1), top_n: int = Query(10, ge=1, le=30)):
-    cache_key = f"tv-recommendations:v2:{series_id}:{top_n}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-    recommendations, similar = await asyncio.gather(
-        _tmdb_tv_get(f"/tv/{series_id}/recommendations", {"page": 1}),
-        _tmdb_tv_get(f"/tv/{series_id}/similar", {"page": 1}),
-    )
-    result, seen = [], set()
-    for item in recommendations.get("results", []) + similar.get("results", []):
-        if item.get("id") and item["id"] not in seen:
-            seen.add(item["id"])
-            result.append(_format_tv_summary(item))
-            if len(result) >= top_n:
-                break
-    cache.set(cache_key, result, expire=86400)
-    return result
-
-
 # Telenovela & TV Stream Providers Configuration
 STREAM_PROVIDERS: Dict[str, List[str]] = {
     "telenovela": [
@@ -1411,6 +1330,58 @@ async def get_trending_telenovelas(request: Request, limit: int = Query(10, ge=1
             break
 
     cache.set(cache_key, telenovelas, expire=7200)
+    return telenovelas
+
+
+@app.get("/api/tv/search-telenovelas")
+@limiter.limit("30/minute")
+async def search_telenovelas(
+    request: Request,
+    query: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=20)
+):
+    """
+    Search specifically for telenovelas.
+    """
+    cache_key = f"search_telenovelas_{query}_{limit}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    if not TMDB_API_KEY:
+        raise HTTPException(status_code=400, detail="TMDB API key not configured")
+
+    try:
+        data = await _tmdb_tv_get("/search/tv", {"query": query, "page": 1})
+        results = data.get("results", [])
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
+        raise HTTPException(status_code=500, detail="Search failed")
+
+    telenovelas = []
+    for show in results[:20]:
+        series_id = show.get("id")
+        if not series_id:
+            continue
+        series_data = await get_tv_series_basic_info(series_id)
+
+        if series_data and await is_telenovela_series(series_id, series_data):
+            genre_names = [TMDB_TV_GENRES.get(gid, "Unknown") for gid in show.get("genre_ids", [])]
+            telenovelas.append({
+                "id": series_id,
+                "name": show.get("name"),
+                "overview": show.get("overview"),
+                "genres": genre_names,
+                "first_air_date": show.get("first_air_date"),
+                "rating": round(show.get("vote_average", 0), 1),
+                "poster_url": f"https://image.tmdb.org/t/p/w500{show.get('poster_path')}" if show.get("poster_path") else None,
+                "stream_provider": "Nontongo.win"
+            })
+
+        if len(telenovelas) >= limit:
+            break
+
+    cache.set(cache_key, telenovelas, expire=3600)
     return telenovelas
 
 
@@ -1546,57 +1517,85 @@ async def get_telenovela_episode_stream(
     }
 
 
-@app.get("/api/tv/search-telenovelas")
+@app.get("/api/tv/{series_id}", response_model=TVSeriesResponse)
 @limiter.limit("30/minute")
-async def search_telenovelas(
-    request: Request,
-    query: str = Query(..., min_length=1),
-    limit: int = Query(10, ge=1, le=20)
-):
-    """
-    Search specifically for telenovelas.
-    """
-    cache_key = f"search_telenovelas_{query}_{limit}"
+async def get_tv_series_details(request: Request, series_id: int = Path(..., ge=1)):
+    cache_key = f"tv-details:v2:{series_id}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
+    data = await _tmdb_tv_get(f"/tv/{series_id}", {"append_to_response": "credits,watch/providers"})
+    result = _format_tv_summary(data, include_details=True)
+    cache.set(cache_key, result, expire=86400)
+    return result
 
-    if not TMDB_API_KEY:
-        raise HTTPException(status_code=400, detail="TMDB API key not configured")
 
-    try:
-        data = await _tmdb_tv_get("/search/tv", {"query": query, "page": 1})
-        results = data.get("results", [])
-    except Exception as e:
-        logger.error(f"Search failed: {e}")
-        raise HTTPException(status_code=500, detail="Search failed")
 
-    telenovelas = []
-    for show in results[:20]:
-        series_id = show.get("id")
-        if not series_id:
-            continue
-        series_data = await get_tv_series_basic_info(series_id)
+@app.get("/api/tv/{series_id}/stream", response_model=EpisodeStreamResponse)
+@limiter.limit("30/minute")
+async def get_tv_stream(request: Request, series_id: int = Path(..., ge=1)):
+    """Return the series-level player URL used by the frontend.
 
-        if series_data and await is_telenovela_series(series_id, series_data):
-            genre_names = [TMDB_TV_GENRES.get(gid, "Unknown") for gid in show.get("genre_ids", [])]
-            telenovelas.append({
-                "id": series_id,
-                "name": show.get("name"),
-                "overview": show.get("overview"),
-                "genres": genre_names,
-                "first_air_date": show.get("first_air_date"),
-                "rating": round(show.get("vote_average", 0), 1),
-                "poster_url": f"https://image.tmdb.org/t/p/w500{show.get('poster_path')}" if show.get("poster_path") else None,
-                "stream_provider": "Nontongo.win"
-            })
+    Episode playback should use the season/episode stream endpoint below.
+    """
+    return EpisodeStreamResponse(series_id=series_id, season_number=0, episode_number=0, stream_url=f"https://vidlink.pro/tv/{series_id}", provider="VidLink")
 
-        if len(telenovelas) >= limit:
-            break
+@app.get("/api/tv/{series_id}/seasons", response_model=List[Season])
+@limiter.limit("30/minute")
+async def get_tv_seasons(request: Request, series_id: int = Path(..., ge=1)):
+    details = await _tmdb_tv_get(f"/tv/{series_id}")
+    return [_format_season(season) for season in details.get("seasons", [])]
 
-    cache.set(cache_key, telenovelas, expire=3600)
-    return telenovelas
 
+@app.get("/api/tv/{series_id}/season/{season_number}", response_model=Dict[str, Any])
+@limiter.limit("30/minute")
+async def get_tv_season(request: Request, series_id: int = Path(..., ge=1), season_number: int = Path(..., ge=0)):
+    return await _fetch_tv_season(series_id, season_number)
+
+
+@app.get("/api/tv/{series_id}/episodes", response_model=List[Episode])
+@limiter.limit("30/minute")
+async def get_tv_episodes(request: Request, series_id: int = Path(..., ge=1), season: Optional[int] = Query(None, ge=0)):
+    if season is not None:
+        return (await _fetch_tv_season(series_id, season)).get("episodes", [])
+    details = await _tmdb_tv_get(f"/tv/{series_id}")
+    seasons = [s.get("season_number", 0) for s in details.get("seasons", [])]
+    season_data = await asyncio.gather(*(_fetch_tv_season(series_id, number) for number in seasons), return_exceptions=True)
+    return [episode for data in season_data if isinstance(data, dict) for episode in data.get("episodes", [])]
+
+
+@app.get("/api/tv/{series_id}/season/{season_number}/episode/{episode_number}/stream", response_model=EpisodeStreamResponse)
+@limiter.limit("30/minute")
+async def get_episode_stream(
+    request: Request,
+    series_id: int = Path(..., ge=1),
+    season_number: int = Path(..., ge=0),
+    episode_number: int = Path(..., ge=1),
+):
+    stream_url = f"https://vidlink.pro/tv/{series_id}/{season_number}/{episode_number}"
+    return EpisodeStreamResponse(series_id=series_id, season_number=season_number, episode_number=episode_number, stream_url=stream_url, provider="VidLink")
+
+
+@app.get("/api/tv/{series_id}/recommendations", response_model=List[TVSeriesResponse])
+@limiter.limit("30/minute")
+async def get_tv_recommendations(request: Request, series_id: int = Path(..., ge=1), top_n: int = Query(10, ge=1, le=30)):
+    cache_key = f"tv-recommendations:v2:{series_id}:{top_n}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    recommendations, similar = await asyncio.gather(
+        _tmdb_tv_get(f"/tv/{series_id}/recommendations", {"page": 1}),
+        _tmdb_tv_get(f"/tv/{series_id}/similar", {"page": 1}),
+    )
+    result, seen = [], set()
+    for item in recommendations.get("results", []) + similar.get("results", []):
+        if item.get("id") and item["id"] not in seen:
+            seen.add(item["id"])
+            result.append(_format_tv_summary(item))
+            if len(result) >= top_n:
+                break
+    cache.set(cache_key, result, expire=86400)
+    return result
 
 
 def get_tv_features(series: Dict[str, Any]) -> Dict[str, Any]:
