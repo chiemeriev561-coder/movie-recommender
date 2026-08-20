@@ -320,6 +320,8 @@ class StreamResponse(BaseModel):
     movie_id: str
     stream_url: str
     provider: str
+    fallback_stream_url: Optional[str] = None
+    fallback_provider: Optional[str] = None
 
 class TMDBRecommendationItem(BaseModel):
     id: Optional[int] = None
@@ -1071,6 +1073,8 @@ class EpisodeStreamResponse(BaseModel):
     episode_number: int
     stream_url: str
     provider: str
+    fallback_stream_url: Optional[str] = None
+    fallback_provider: Optional[str] = None
 
 
 def _tmdb_image(path: Optional[str], size: str = "w500") -> Optional[str]:
@@ -1226,271 +1230,8 @@ async def search_tv_series(
     return payload
 
 
-# Telenovela & TV Stream Providers Configuration
-STREAM_PROVIDERS: Dict[str, List[str]] = {
-    "telenovela": [
-        "https://nontongo.win/tv/{series_id}/{season}/{episode}"
-    ],
-    "tv": [
-        "https://vidlink.pro/tv/{series_id}/{season}/{episode}"
-    ]
-}
-
-
-async def get_tv_series_basic_info(series_id: int) -> Optional[Dict[str, Any]]:
-    """Fetch basic TMDB details for a TV series with caching."""
-    cache_key = f"tv-basic-info:v1:{series_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-    try:
-        data = await _tmdb_tv_get(f"/tv/{series_id}")
-        cache.set(cache_key, data, expire=86400)
-        return data
-    except Exception as e:
-        logger.warning(f"Failed to fetch basic info for TV series {series_id}: {e}")
-        return None
-
-
-async def is_telenovela_series(series_id: int, series_data: Dict[str, Any]) -> bool:
-    """
-    Check if a TV series is a telenovela.
-    Considers TMDB 'Soap' genre (ID 10766), original language (Spanish/Portuguese/Tagalog),
-    and telenovela keywords/overview.
-    """
-    if not series_data:
-        return False
-
-    raw_genres = series_data.get("genres", [])
-    if isinstance(raw_genres, list):
-        genre_ids = [g.get("id") if isinstance(g, dict) else g for g in raw_genres]
-    else:
-        genre_ids = []
-
-    if not genre_ids and "genre_ids" in series_data:
-        genre_ids = series_data.get("genre_ids", [])
-
-    # TMDB 10766 = Soap
-    has_soap_genre = 10766 in genre_ids
-
-    orig_lang = str(series_data.get("original_language") or "").lower()
-    is_telenovela_lang = orig_lang in {"es", "pt", "tl"}
-
-    overview = str(series_data.get("overview") or "").lower()
-    name = str(series_data.get("name") or "").lower()
-    keywords = ["telenovela", "soap opera", "novela"]
-    has_keyword = any(kw in overview or kw in name for kw in keywords)
-
-    return has_soap_genre or (is_telenovela_lang and (18 in genre_ids or has_soap_genre)) or has_keyword
-
-
-@app.get("/api/tv/trending-telenovelas")
-@limiter.limit("20/minute")
-async def get_trending_telenovelas(request: Request, limit: int = Query(10, ge=1, le=20)):
-    """
-    Get trending telenovelas specifically using Nontongo.win.
-    """
-    cache_key = f"trending_telenovelas_v1_{limit}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    if not TMDB_API_KEY:
-        raise HTTPException(status_code=400, detail="TMDB API key not configured")
-
-    try:
-        data = await _tmdb_tv_get("/tv/popular", {"page": 1})
-        all_shows = data.get("results", [])
-    except Exception as e:
-        logger.error(f"Error fetching trending TV: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch trending TV")
-
-    telenovelas = []
-    for show in all_shows:
-        series_id = show.get("id")
-        if not series_id:
-            continue
-        series_data = await get_tv_series_basic_info(series_id)
-
-        if series_data and await is_telenovela_series(series_id, series_data):
-            genre_names = [TMDB_TV_GENRES.get(gid, "Unknown") for gid in show.get("genre_ids", [])]
-            telenovelas.append({
-                "id": series_id,
-                "name": show.get("name"),
-                "overview": show.get("overview"),
-                "genres": genre_names,
-                "first_air_date": show.get("first_air_date"),
-                "rating": round(show.get("vote_average", 0), 1),
-                "poster_url": f"https://image.tmdb.org/t/p/w500{show.get('poster_path')}" if show.get("poster_path") else None,
-                "backdrop_url": f"https://image.tmdb.org/t/p/w500{show.get('backdrop_path')}" if show.get("backdrop_path") else None,
-                "stream_provider": "Nontongo.win"
-            })
-
-        if len(telenovelas) >= limit:
-            break
-
-    cache.set(cache_key, telenovelas, expire=7200)
-    return telenovelas
-
-
-@app.get("/api/tv/search-telenovelas")
-@limiter.limit("30/minute")
-async def search_telenovelas(
-    request: Request,
-    query: str = Query(..., min_length=1),
-    limit: int = Query(10, ge=1, le=20)
-):
-    """
-    Search specifically for telenovelas.
-    """
-    cache_key = f"search_telenovelas_{query}_{limit}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    if not TMDB_API_KEY:
-        raise HTTPException(status_code=400, detail="TMDB API key not configured")
-
-    try:
-        data = await _tmdb_tv_get("/search/tv", {"query": query, "page": 1})
-        results = data.get("results", [])
-    except Exception as e:
-        logger.error(f"Search failed: {e}")
-        raise HTTPException(status_code=500, detail="Search failed")
-
-    telenovelas = []
-    for show in results[:20]:
-        series_id = show.get("id")
-        if not series_id:
-            continue
-        series_data = await get_tv_series_basic_info(series_id)
-
-        if series_data and await is_telenovela_series(series_id, series_data):
-            genre_names = [TMDB_TV_GENRES.get(gid, "Unknown") for gid in show.get("genre_ids", [])]
-            telenovelas.append({
-                "id": series_id,
-                "name": show.get("name"),
-                "overview": show.get("overview"),
-                "genres": genre_names,
-                "first_air_date": show.get("first_air_date"),
-                "rating": round(show.get("vote_average", 0), 1),
-                "poster_url": f"https://image.tmdb.org/t/p/w500{show.get('poster_path')}" if show.get("poster_path") else None,
-                "stream_provider": "Nontongo.win"
-            })
-
-        if len(telenovelas) >= limit:
-            break
-
-    cache.set(cache_key, telenovelas, expire=3600)
-    return telenovelas
-
-
-@app.get("/api/tv/telenovela/{series_id}")
-@limiter.limit("30/minute")
-async def get_telenovela_details(request: Request, series_id: int = Path(..., ge=1)):
-    """
-    Get detailed telenovela info with Nontongo.win streaming.
-    """
-    cache_key = f"telenovela_details_{series_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    if not TMDB_API_KEY:
-        raise HTTPException(status_code=400, detail="TMDB API key not configured")
-
-    try:
-        data = await _tmdb_tv_get(f"/tv/{series_id}")
-
-        if not await is_telenovela_series(series_id, data):
-            raise HTTPException(status_code=400, detail="This is not a telenovela")
-
-        seasons = []
-        for s in data.get("seasons", []):
-            season_num = s.get("season_number", 0)
-            if season_num == 0:  # Skip "Specials"
-                continue
-            seasons.append({
-                "season_number": season_num,
-                "episode_count": s.get("episode_count", 0),
-                "name": s.get("name", f"Season {season_num}"),
-                "overview": s.get("overview"),
-                "poster_url": f"https://image.tmdb.org/t/p/w500{s.get('poster_path')}" if s.get("poster_path") else None,
-                "air_date": s.get("air_date")
-            })
-
-        genres_raw = data.get("genres", [])
-        genre_names = []
-        for g in genres_raw:
-            if isinstance(g, dict):
-                genre_names.append(g.get("name", TMDB_TV_GENRES.get(g.get("id"), "Unknown")))
-            else:
-                genre_names.append(TMDB_TV_GENRES.get(g, "Unknown"))
-
-        result = {
-            "id": data.get("id"),
-            "name": data.get("name"),
-            "original_name": data.get("original_name"),
-            "overview": data.get("overview"),
-            "genres": genre_names,
-            "first_air_date": data.get("first_air_date"),
-            "last_air_date": data.get("last_air_date"),
-            "number_of_seasons": data.get("number_of_seasons", 0),
-            "number_of_episodes": data.get("number_of_episodes", 0),
-            "status": data.get("status"),
-            "rating": round(data.get("vote_average", 0), 1),
-            "poster_url": f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get("poster_path") else None,
-            "backdrop_url": f"https://image.tmdb.org/t/p/w500{data.get('backdrop_path')}" if data.get("backdrop_path") else None,
-            "seasons": seasons,
-            "stream_provider": "Nontongo.win",
-            "is_telenovela": True
-        }
-
-        cache.set(cache_key, result, expire=86400)
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error fetching telenovela {series_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch telenovela")
-
-
-@app.get("/api/tv/telenovela/{series_id}/season/{season_num}/episode/{episode_num}/stream")
-@limiter.limit("30/minute")
-async def get_telenovela_episode_stream(
-    request: Request,
-    series_id: int = Path(..., ge=1),
-    season_num: int = Path(..., ge=0),
-    episode_num: int = Path(..., ge=1)
-):
-    """
-    Get streaming URL for telenovela episode (FORCED to use Nontongo.win).
-    """
-    series_data = await get_tv_series_basic_info(series_id)
-    if not series_data:
-        raise HTTPException(status_code=404, detail="Series not found")
-
-    if not await is_telenovela_series(series_id, series_data):
-        raise HTTPException(status_code=400, detail="This is not a telenovela")
-
-    # Format Nontongo URL
-    nontongo_url = STREAM_PROVIDERS["telenovela"][0].format(
-        series_id=series_id,
-        season=season_num,
-        episode=episode_num
-    )
-
-    # Return Nontongo.win stream provider
-    return {
-        "series_id": series_id,
-        "season": season_num,
-        "episode": episode_num,
-        "stream_url": nontongo_url,
-        "provider": "Nontongo.win",
-        "is_telenovela": True,
-        "success": True
-    }
+    cache.set(cache_key, payload, expire=3600)
+    return payload
 
 
 @app.get("/api/tv/{series_id}", response_model=TVSeriesResponse)
@@ -1506,15 +1247,23 @@ async def get_tv_series_details(request: Request, series_id: int = Path(..., ge=
     return result
 
 
-
 @app.get("/api/tv/{series_id}/stream", response_model=EpisodeStreamResponse)
 @limiter.limit("30/minute")
 async def get_tv_stream(request: Request, series_id: int = Path(..., ge=1)):
     """Return the series-level player URL used by the frontend.
 
     Episode playback should use the season/episode stream endpoint below.
+    Includes Nontongo.win as a secondary fallback option if VidLink fails.
     """
-    return EpisodeStreamResponse(series_id=series_id, season_number=0, episode_number=0, stream_url=f"https://vidlink.pro/tv/{series_id}", provider="VidLink")
+    return EpisodeStreamResponse(
+        series_id=series_id,
+        season_number=0,
+        episode_number=0,
+        stream_url=f"https://vidlink.pro/tv/{series_id}",
+        provider="VidLink",
+        fallback_stream_url=f"https://nontongo.win/tv/{series_id}/1/1",
+        fallback_provider="Nontongo.win"
+    )
 
 @app.get("/api/tv/{series_id}/seasons", response_model=List[Season])
 @limiter.limit("30/minute")
@@ -1549,7 +1298,16 @@ async def get_episode_stream(
     episode_number: int = Path(..., ge=1),
 ):
     stream_url = f"https://vidlink.pro/tv/{series_id}/{season_number}/{episode_number}"
-    return EpisodeStreamResponse(series_id=series_id, season_number=season_number, episode_number=episode_number, stream_url=stream_url, provider="VidLink")
+    fallback_url = f"https://nontongo.win/tv/{series_id}/{season_number}/{episode_number}"
+    return EpisodeStreamResponse(
+        series_id=series_id,
+        season_number=season_number,
+        episode_number=episode_number,
+        stream_url=stream_url,
+        provider="VidLink",
+        fallback_stream_url=fallback_url,
+        fallback_provider="Nontongo.win"
+    )
 
 
 @app.get("/api/tv/{series_id}/recommendations", response_model=List[TVSeriesResponse])
@@ -2086,13 +1844,15 @@ async def get_movie_stream_url(request: Request, movie_id: str):
     """
     clean_id = str(movie_id).strip()
     
-    # Clean, low-ad developer endpoint
     stream_url = f"https://vidlink.pro/movie/{clean_id}"
-    
+    fallback_url = f"https://nontongo.win/movie/{clean_id}"
+
     return StreamResponse(
         movie_id=clean_id,
         stream_url=stream_url,
-        provider="Phlox Premium Secure Stream"
+        provider="Phlox Premium Secure Stream",
+        fallback_stream_url=fallback_url,
+        fallback_provider="Nontongo.win"
     )
 
 @app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)
