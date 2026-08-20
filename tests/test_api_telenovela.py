@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 import api
 
@@ -30,19 +30,9 @@ def test_get_telenovela_episode_stream(monkeypatch):
 
     monkeypatch.setattr(api, "get_tv_series_basic_info", AsyncMock(return_value=telenovela_info))
 
-    # Mock httpx HEAD request success
-    mock_resp = AsyncMock()
-    mock_resp.status_code = 200
-
-    mock_client = AsyncMock()
-    mock_client.head.return_value = mock_resp
-    mock_client.__aenter__.return_value = mock_client
-    mock_client.__aexit__.return_value = None
-
-    with patch("httpx.AsyncClient", return_value=mock_client):
-        response = client.get("/api/tv/telenovela/1234/season/1/episode/1/stream")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["stream_url"] == "https://nontongo.win/tv/1234/1/1"
-        assert data["provider"] == "Nontongo.win"
-        assert data["is_telenovela"] is True
+    response = client.get("/api/tv/telenovela/1234/season/1/episode/1/stream")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["stream_url"] == "https://nontongo.win/tv/1234/1/1"
+    assert data["provider"] == "Nontongo.win"
+    assert data["is_telenovela"] is True

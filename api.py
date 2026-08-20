@@ -1474,46 +1474,22 @@ async def get_telenovela_episode_stream(
     if not await is_telenovela_series(series_id, series_data):
         raise HTTPException(status_code=400, detail="This is not a telenovela")
 
-    # 2. Format Nontongo URL
+    # Format Nontongo URL
     nontongo_url = STREAM_PROVIDERS["telenovela"][0].format(
         series_id=series_id,
         season=season_num,
         episode=episode_num
     )
 
-    # 3. Check Nontongo URL accessibility
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.head(nontongo_url, follow_redirects=True)
-            if resp.status_code < 400:
-                return {
-                    "series_id": series_id,
-                    "season": season_num,
-                    "episode": episode_num,
-                    "stream_url": nontongo_url,
-                    "provider": "Nontongo.win",
-                    "is_telenovela": True,
-                    "success": True
-                }
-    except Exception as e:
-        logger.warning(f"Nontongo failed for telenovela {series_id}: {e}")
-
-    # 4. Fallback to VidLink (or regular providers)
-    fallback_url = STREAM_PROVIDERS["tv"][0].format(
-        series_id=series_id,
-        season=season_num,
-        episode=episode_num
-    )
-
+    # Return Nontongo.win stream provider
     return {
         "series_id": series_id,
         "season": season_num,
         "episode": episode_num,
-        "stream_url": fallback_url,
-        "provider": "VidLink (fallback)",
+        "stream_url": nontongo_url,
+        "provider": "Nontongo.win",
         "is_telenovela": True,
-        "success": True,
-        "fallback": True
+        "success": True
     }
 
 
