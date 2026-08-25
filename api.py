@@ -2014,8 +2014,10 @@ async def remove_from_favorites(request: Request, favorite: FavoriteRequest):
         success = remove_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
             return {"message": "Removed from favorites"}
-        else:
-            raise HTTPException(status_code=404, detail="Not found in favorites")
+        # The user profile was updated above, so removing an entry that is
+        # absent from the global/local favorites file is still a successful,
+        # idempotent operation.
+        return {"message": "Favorite removed from recommendations"}
     except HTTPException:
         raise
     except Exception as e:
