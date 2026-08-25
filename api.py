@@ -2003,21 +2003,22 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
 
 @app.delete("/api/favorites", response_model=Dict[str, str])
 @limiter.limit("5/minute")
-async def remove_from_favorites(request: Request, favorite: FavoriteRequest):
+async def remove_from_favorites(
+    request: Request,
+    name: str = Query(...),
+    year: int = Query(...),
+):
     try:
         user_ip = request.client.host if request.client else "unknown"
 
         # Remove from the user's profile regardless of global-file state.
-        remove_user_favorite_key(user_ip, favorite.name, favorite.year)
+        remove_user_favorite_key(user_ip, name, year)
         update_user_preferences_from_favorites(user_ip)
 
-        success = remove_favorite(favorite.name, favorite.year, FAVORITES_FILE)
-        if success:
-            return {"message": "Removed from favorites"}
-        # The user profile was updated above, so removing an entry that is
-        # absent from the global/local favorites file is still a successful,
-        # idempotent operation.
-        return {"message": "Favorite removed from recommendations"}
+        # Global favorites are best-effort; the IP profile is authoritative
+        # for personalization and has already been updated.
+        remove_favorite(name, year, FAVORITES_FILE)
+        return {"message": "Removed from favorites"}
     except HTTPException:
         raise
     except Exception as e:
