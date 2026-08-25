@@ -212,6 +212,33 @@ def remove_user_favorite_key(user_ip: str, name: str, year: int) -> None:
     keys.discard((name, year))
     cache.set(f"fav_keys_{user_ip}", keys, expire=86400 * 30)
 
+
+def build_user_favorite_movies(user_ip: str) -> tuple[Set[tuple[str, int]], List[Dict[str, Any]]]:
+    """Build recommendation seeds from local movies and TMDB-only favorites."""
+    fav_keys = get_user_favorite_keys(user_ip)
+    _update_movies_map_if_needed()
+
+    favorite_movies = []
+    for name, year in fav_keys:
+        key = (name.lower(), year)
+        if key in _movies_map:
+            favorite_movies.append(_movies_map[key])
+        else:
+            favorite = {
+                "name": name,
+                "year": year,
+                "genre": "Movie",
+                "all_genres": [],
+                "category": "Favorite",
+                "rating": 7.0,
+                "box_office_millions": 0.0,
+            }
+            # Content scoring expects the same cached fields as local movies.
+            ensure_search_fields(favorite)
+            favorite_movies.append(favorite)
+
+    return fav_keys, favorite_movies
+
 # Add bare domains and both http/https for common origins
 base_origins = [
     "http://localhost:3000",
@@ -1954,15 +1981,20 @@ async def get_favorites(request: Request):
 @limiter.limit("5/minute")
 async def add_to_favorites(request: Request, favorite: FavoriteRequest):
     try:
-        success = add_favorite(favorite.name, favorite.year, FAVORITES_FILE)
+        user_ip = request.client.host if request.client else "unknown"
+        name, year = favorite.name, favorite.year
+
+        # Always attach this favorite to the user's personalization profile,
+        # including when it is already present in the global favorites file.
+        add_user_favorite_key(user_ip, name, year)
+        update_user_preferences_from_favorites(user_ip)
+
+        # The global file contains local-dataset movies only. Its failure must
+        # not prevent personalization from remembering the user's key.
+        success = add_favorite(name, year, FAVORITES_FILE)
         if success:
-            # Update user preferences for better recommendations
-            user_ip = request.client.host if request.client else "unknown"
-            add_user_favorite_key(user_ip, favorite.name, favorite.year)
-            update_user_preferences_from_favorites(user_ip)
             return {"message": "Added to favorites"}
-        else:
-            raise HTTPException(status_code=400, detail="Not found or already in favorites")
+        return {"message": "Favorite registered for recommendations"}
     except HTTPException:
         raise
     except Exception as e:
@@ -1973,11 +2005,14 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
 @limiter.limit("5/minute")
 async def remove_from_favorites(request: Request, favorite: FavoriteRequest):
     try:
+        user_ip = request.client.host if request.client else "unknown"
+
+        # Remove from the user's profile regardless of global-file state.
+        remove_user_favorite_key(user_ip, favorite.name, favorite.year)
+        update_user_preferences_from_favorites(user_ip)
+
         success = remove_favorite(favorite.name, favorite.year, FAVORITES_FILE)
         if success:
-            user_ip = request.client.host if request.client else "unknown"
-            remove_user_favorite_key(user_ip, favorite.name, favorite.year)
-            update_user_preferences_from_favorites(user_ip)
             return {"message": "Removed from favorites"}
         else:
             raise HTTPException(status_code=404, detail="Not found in favorites")
@@ -2399,15 +2434,9 @@ async def get_personalized_recommendations(
         if not TMDB_API_KEY:
             raise HTTPException(status_code=503, detail="TMDB integration is not configured")
 
-        # 1. Get user's favorite movies from local dataset
-        fav_keys = get_user_favorite_keys(user_ip)
-        _update_movies_map_if_needed()
-        
-        favorite_movies = []
-        for name, year in fav_keys:
-            key = (name.lower(), year)
-            if key in _movies_map:
-                favorite_movies.append(_movies_map[key])
+        # 1. Get all of this user's favorite keys. Favorites outside the local
+        # dataset remain valid seeds and are resolved through TMDB below.
+        fav_keys, favorite_movies = build_user_favorite_movies(user_ip)
         
         if not favorite_movies:
             # No favorites, fallback to TMDB popular
@@ -2601,11 +2630,7 @@ async def get_hybrid_recommendations_endpoint(
         fav_keys = get_user_favorite_keys(user_ip)
         favorite_movies = []
         if fav_keys:
-            movie_recommender._update_movies_map_if_needed()
-            for name, year in fav_keys:
-                key = (name.lower(), year)
-                if key in _movies_map:
-                    favorite_movies.append(_movies_map[key])
+            _, favorite_movies = build_user_favorite_movies(user_ip)
 
         # Cache the complete response, not just the TMDB candidate calls. The
         # favorites are part of the key because they change personalized
