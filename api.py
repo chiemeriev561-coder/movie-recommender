@@ -10,6 +10,7 @@ import hashlib
 import json
 import httpx
 import math
+import urllib.parse
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any, Set
 
@@ -349,6 +350,25 @@ class StreamResponse(BaseModel):
     provider: str
     fallback_stream_url: Optional[str] = None
     fallback_provider: Optional[str] = None
+
+class MovieDownloadItem(BaseModel):
+    quality: str
+    type: str
+    size: str
+    size_bytes: Optional[int] = None
+    seeds: Optional[int] = None
+    peers: Optional[int] = None
+    info_hash: Optional[str] = None
+    torrent_url: str
+    magnet_url: str
+
+class MovieDownloadResponse(BaseModel):
+    movie_id: str
+    imdb_id: Optional[str] = None
+    title: Optional[str] = None
+    year: Optional[int] = None
+    available: bool
+    downloads: List[MovieDownloadItem] = []
 
 class TMDBRecommendationItem(BaseModel):
     id: Optional[int] = None
@@ -1881,6 +1901,156 @@ async def get_movie_stream_url(request: Request, movie_id: str):
         fallback_stream_url=fallback_url,
         fallback_provider="Nontongo.win"
     )
+
+TRACKERS = [
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://tracker.bittor.pw:1337/announce",
+    "udp://public.popcorn-tracker.org:6969/announce",
+    "udp://tracker.dler.org:6969/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://open.demonii.com:1337/announce",
+]
+
+def build_magnet_uri(info_hash: str, movie_title: str) -> str:
+    encoded_name = urllib.parse.quote(movie_title or "movie")
+    magnet = f"magnet:?xt=urn:btih:{info_hash}&dn={encoded_name}"
+    for tr in TRACKERS:
+        magnet += f"&tr={urllib.parse.quote(tr)}"
+    return magnet
+
+@app.get("/api/movies/{movie_id}/downloads", response_model=MovieDownloadResponse)
+@limiter.limit("30/minute")
+async def get_movie_downloads(request: Request, movie_id: str):
+    """
+    Returns available torrent and magnet download links for a given movie.
+    Resolves TMDB ID to IMDB ID and queries YTS mirrors for multi-quality downloads (720p, 1080p, 2160p).
+    """
+    clean_id = str(movie_id).strip()
+    if not clean_id:
+        raise HTTPException(status_code=400, detail="movie_id cannot be empty")
+
+    cache_key = f"movie_downloads_{clean_id}"
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return MovieDownloadResponse(**cached_result)
+
+    imdb_id: Optional[str] = None
+    movie_title: Optional[str] = None
+    release_year: Optional[int] = None
+
+    # If already an IMDB ID
+    if clean_id.startswith("tt"):
+        imdb_id = clean_id
+    else:
+        # Resolve via TMDB if configured
+        if TMDB_API_KEY:
+            url = f"https://api.themoviedb.org/3/movie/{clean_id}"
+            try:
+                async with httpx.AsyncClient(timeout=7.0) as client:
+                    resp = await client.get(url, params={"api_key": TMDB_API_KEY})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    imdb_id = data.get("imdb_id")
+                    movie_title = data.get("title")
+                    release_date = data.get("release_date")
+                    if release_date and len(release_date) >= 4:
+                        try:
+                            release_year = int(release_date[:4])
+                        except ValueError:
+                            pass
+                elif resp.status_code == 404:
+                    raise HTTPException(status_code=404, detail="Movie not found on TMDB")
+            except HTTPException:
+                raise
+            except httpx.RequestError:
+                logger.warning("Failed to reach TMDB for movie_id=%s", clean_id)
+            except Exception as e:
+                logger.warning("Unexpected error during TMDB lookup for movie_id=%s: %s", clean_id, e)
+
+        # Fallback: check local dataset if available and title still unknown
+        if not movie_title:
+            try:
+                if hasattr(movie_recommender, "movies") and movie_recommender.movies is not None:
+                    matched = movie_recommender.movies[movie_recommender.movies['id'].astype(str) == clean_id]
+                    if not matched.empty:
+                        movie_title = str(matched.iloc[0].get('title', ''))
+                        if 'year' in matched.columns:
+                            try:
+                                release_year = int(matched.iloc[0]['year'])
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+    query_term = imdb_id or movie_title or clean_id
+    yts_endpoints = [
+        "https://movies-api.accel.li/api/v2/list_movies.json",
+        "https://yts.lt/api/v2/list_movies.json",
+        "https://yts.mx/api/v2/list_movies.json",
+    ]
+
+    torrents_data = None
+    matched_movie = None
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+    async with httpx.AsyncClient(timeout=7.0, follow_redirects=True) as client:
+        for ep in yts_endpoints:
+            try:
+                resp = await client.get(ep, params={"query_term": query_term}, headers=headers)
+                if resp.status_code == 200:
+                    yts_json = resp.json()
+                    if yts_json.get("status") == "ok":
+                        movies = yts_json.get("data", {}).get("movies", [])
+                        if movies:
+                            for m in movies:
+                                if imdb_id and m.get("imdb_code") == imdb_id:
+                                    matched_movie = m
+                                    break
+                            if not matched_movie:
+                                matched_movie = movies[0]
+                            torrents_data = matched_movie.get("torrents", [])
+                            if not movie_title:
+                                movie_title = matched_movie.get("title")
+                            if not release_year and matched_movie.get("year"):
+                                release_year = matched_movie.get("year")
+                            if not imdb_id and matched_movie.get("imdb_code"):
+                                imdb_id = matched_movie.get("imdb_code")
+                            break
+            except Exception as e:
+                logger.debug("YTS endpoint %s failed: %s", ep, e)
+                continue
+
+    download_items: List[MovieDownloadItem] = []
+    if torrents_data:
+        for t in torrents_data:
+            info_hash = t.get("hash", "")
+            download_items.append(
+                MovieDownloadItem(
+                    quality=t.get("quality", "Unknown"),
+                    type=t.get("type", ""),
+                    size=t.get("size", ""),
+                    size_bytes=t.get("size_bytes"),
+                    seeds=t.get("seeds"),
+                    peers=t.get("peers"),
+                    info_hash=info_hash,
+                    torrent_url=t.get("url", ""),
+                    magnet_url=build_magnet_uri(info_hash, movie_title or "movie") if info_hash else "",
+                )
+            )
+
+    result = MovieDownloadResponse(
+        movie_id=clean_id,
+        imdb_id=imdb_id,
+        title=movie_title,
+        year=release_year,
+        available=len(download_items) > 0,
+        downloads=download_items,
+    )
+
+    cache.set(cache_key, result.model_dump(), expire=86400)
+    return result
 
 @app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)
 @limiter.limit("20/minute")

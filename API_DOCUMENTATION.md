@@ -173,12 +173,64 @@ curl "http://localhost:8000/api/movies/550/stream"
 ```json
 {
   "movie_id": "550",
-  "stream_url": "https://vidsrc.cc/v2/embed/movie/550",
-  "provider": "Phlox Premium Secure Stream"
+  "stream_url": "https://vidlink.pro/movie/550",
+  "provider": "Phlox Premium Secure Stream",
+  "fallback_stream_url": "https://nontongo.win/movie/550",
+  "fallback_provider": "Nontongo.win"
 }
 ```
 
-### 6. Top Rated Movies
+### 6. Movie Downloads
+
+```
+GET /api/movies/{movie_id}/downloads
+```
+
+Get available multi-quality torrent download links (`.torrent`) and magnet links for a given movie. Supports TMDB ID (e.g. `550`) or IMDB ID (e.g. `tt0137523`). Results are cached for 24 hours.
+
+**Example:**
+
+```bash
+curl "http://localhost:8000/api/movies/550/downloads"
+```
+
+**Response:**
+
+```json
+{
+  "movie_id": "550",
+  "imdb_id": "tt0137523",
+  "title": "Fight Club",
+  "year": 1999,
+  "available": true,
+  "downloads": [
+    {
+      "quality": "720p",
+      "type": "bluray",
+      "size": "1.25 GB",
+      "size_bytes": 1342177280,
+      "seeds": 100,
+      "peers": 25,
+      "info_hash": "0FACFB2D11C9A8F15281A909B45084E6425EF2F0",
+      "torrent_url": "https://yts.gg/torrent/download/0FACFB2D11C9A8F15281A909B45084E6425EF2F0",
+      "magnet_url": "magnet:?xt=urn:btih:0FACFB2D11C9A8F15281A909B45084E6425EF2F0&dn=Fight%20Club&tr=udp%3A//tracker.opentrackr.org%3A1337/announce..."
+    },
+    {
+      "quality": "1080p",
+      "type": "bluray",
+      "size": "2.40 GB",
+      "size_bytes": 2576980377,
+      "seeds": 250,
+      "peers": 40,
+      "info_hash": "...",
+      "torrent_url": "https://yts.gg/torrent/download/...",
+      "magnet_url": "magnet:?xt=urn:btih:..."
+    }
+  ]
+}
+```
+
+### 7. Top Rated Movies
 
 ```
 GET /api/movies/top?limit=10
