@@ -360,6 +360,7 @@ class MovieDownloadItem(BaseModel):
     peers: Optional[int] = None
     info_hash: Optional[str] = None
     torrent_url: str
+    direct_download_url: Optional[str] = None
     magnet_url: str
 
 class MovieDownloadResponse(BaseModel):
@@ -2026,6 +2027,9 @@ async def get_movie_downloads(request: Request, movie_id: str):
     if torrents_data:
         for t in torrents_data:
             info_hash = t.get("hash", "")
+            quality_str = str(t.get("quality", "1080p")).strip()
+            encoded_title = urllib.parse.quote(movie_title or "movie")
+            direct_url = f"/api/movies/{clean_id}/torrent/{info_hash}?title={encoded_title}&quality={quality_str}" if info_hash else None
             download_items.append(
                 MovieDownloadItem(
                     quality=t.get("quality", "Unknown"),
@@ -2036,6 +2040,7 @@ async def get_movie_downloads(request: Request, movie_id: str):
                     peers=t.get("peers"),
                     info_hash=info_hash,
                     torrent_url=t.get("url", ""),
+                    direct_download_url=direct_url,
                     magnet_url=build_magnet_uri(info_hash, movie_title or "movie") if info_hash else "",
                 )
             )
@@ -2051,6 +2056,53 @@ async def get_movie_downloads(request: Request, movie_id: str):
 
     cache.set(cache_key, result.model_dump(), expire=86400)
     return result
+
+@app.get("/api/movies/{movie_id}/torrent/{info_hash}")
+@limiter.limit("30/minute")
+async def get_torrent_file(
+    request: Request,
+    movie_id: str,
+    info_hash: str,
+    title: Optional[str] = None,
+    quality: Optional[str] = None
+):
+    """
+    Proxies and serves the .torrent file directly from the API.
+    Bypasses browser CORS, third-party hotlink blocking, and adblockers.
+    """
+    clean_hash = info_hash.strip().upper()
+    torrent_urls = [
+        f"https://yts.gg/torrent/download/{clean_hash}",
+        f"https://yts.mx/torrent/download/{clean_hash}",
+        f"https://yts.lt/torrent/download/{clean_hash}",
+    ]
+
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    content = None
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        for t_url in torrent_urls:
+            try:
+                resp = await client.get(t_url, headers=headers)
+                if resp.status_code == 200 and len(resp.content) > 500:
+                    content = resp.content
+                    break
+            except Exception:
+                continue
+
+    if not content:
+        raise HTTPException(status_code=404, detail="Torrent file not found or unavailable")
+
+    safe_title = "".join(c for c in (title or "movie") if c.isalnum() or c in (" ", "-", "_")).strip()
+    filename = f"{safe_title}_{quality or 'torrent'}.torrent".replace(" ", "_")
+
+    return Response(
+        content=content,
+        media_type="application/x-bittorrent",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
+    )
 
 @app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)
 @limiter.limit("20/minute")
