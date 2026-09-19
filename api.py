@@ -98,8 +98,6 @@ PORT = int(os.getenv("PORT", "8000"))
 HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
-TORBOX_API_KEY = os.getenv("TORBOX_API_KEY", "").strip()
-REAL_DEBRID_API_KEY = os.getenv("REAL_DEBRID_API_KEY", "").strip()
 
 # TMDB Genre ID to Name Mapping
 TMDB_GENRES = {
@@ -363,7 +361,6 @@ class MovieDownloadItem(BaseModel):
     info_hash: Optional[str] = None
     torrent_url: str
     direct_download_url: Optional[str] = None
-    direct_mp4_url: Optional[str] = None
     magnet_url: str
 
 class MovieDownloadResponse(BaseModel):
@@ -372,18 +369,7 @@ class MovieDownloadResponse(BaseModel):
     title: Optional[str] = None
     year: Optional[int] = None
     available: bool
-    direct_mp4_supported: bool = False
     downloads: List[MovieDownloadItem] = []
-
-class DirectDownloadResponse(BaseModel):
-    available: bool
-    movie_id: str
-    quality: Optional[str] = None
-    download_url: Optional[str] = None
-    filename: Optional[str] = None
-    filesize: Optional[int] = None
-    provider: Optional[str] = None
-    message: Optional[str] = None
 
 class TMDBRecommendationItem(BaseModel):
     id: Optional[int] = None
@@ -2044,7 +2030,6 @@ async def get_movie_downloads(request: Request, movie_id: str):
             quality_str = str(t.get("quality", "1080p")).strip()
             encoded_title = urllib.parse.quote(movie_title or "movie")
             direct_url = f"/api/movies/{clean_id}/torrent/{info_hash}?title={encoded_title}&quality={quality_str}" if info_hash else None
-            direct_mp4 = f"/api/movies/{clean_id}/direct-download?quality={quality_str}"
             download_items.append(
                 MovieDownloadItem(
                     quality=t.get("quality", "Unknown"),
@@ -2056,7 +2041,6 @@ async def get_movie_downloads(request: Request, movie_id: str):
                     info_hash=info_hash,
                     torrent_url=t.get("url", ""),
                     direct_download_url=direct_url,
-                    direct_mp4_url=direct_mp4,
                     magnet_url=build_magnet_uri(info_hash, movie_title or "movie") if info_hash else "",
                 )
             )
@@ -2067,7 +2051,6 @@ async def get_movie_downloads(request: Request, movie_id: str):
         title=movie_title,
         year=release_year,
         available=len(download_items) > 0,
-        direct_mp4_supported=bool(TORBOX_API_KEY or REAL_DEBRID_API_KEY),
         downloads=download_items,
     )
 
@@ -2119,138 +2102,6 @@ async def get_torrent_file(
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Access-Control-Expose-Headers": "Content-Disposition"
         }
-    )
-
-async def resolve_torbox_link(magnet_url: str, info_hash: str) -> Optional[Dict[str, Any]]:
-    if not TORBOX_API_KEY:
-        return None
-    headers = {"Authorization": f"Bearer {TORBOX_API_KEY}"}
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            "https://api.torbox.app/v1/api/torrents/createtorrent",
-            headers=headers,
-            data={"magnet": magnet_url, "seed": 1, "allow_zip": "false"}
-        )
-        if resp.status_code == 200:
-            res_data = resp.json()
-            torrent_id = res_data.get("data", {}).get("torrent_id")
-            if torrent_id:
-                dl_resp = await client.get(
-                    "https://api.torbox.app/v1/api/torrents/requestdl",
-                    headers=headers,
-                    params={"token": TORBOX_API_KEY, "torrent_id": torrent_id}
-                )
-                if dl_resp.status_code == 200:
-                    dl_json = dl_resp.json()
-                    dl_url = dl_json.get("data")
-                    if dl_url and isinstance(dl_url, str):
-                        return {"download_url": dl_url, "provider": "Torbox"}
-    return None
-
-async def resolve_realdebrid_link(magnet_url: str) -> Optional[Dict[str, Any]]:
-    if not REAL_DEBRID_API_KEY:
-        return None
-    headers = {"Authorization": f"Bearer {REAL_DEBRID_API_KEY}"}
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        add_resp = await client.post(
-            "https://api.real-debrid.com/rest/1.0/torrents/addMagnet",
-            headers=headers,
-            data={"magnet": magnet_url}
-        )
-        if add_resp.status_code == 201:
-            torrent_id = add_resp.json().get("id")
-            if torrent_id:
-                await client.post(
-                    f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{torrent_id}",
-                    headers=headers,
-                    data={"files": "all"}
-                )
-                info_resp = await client.get(
-                    f"https://api.real-debrid.com/rest/1.0/torrents/info/{torrent_id}",
-                    headers=headers
-                )
-                if info_resp.status_code == 200:
-                    links = info_resp.json().get("links", [])
-                    if links:
-                        unrestrict_resp = await client.post(
-                            "https://api.real-debrid.com/rest/1.0/unrestrict/link",
-                            headers=headers,
-                            data={"link": links[0]}
-                        )
-                        if unrestrict_resp.status_code == 200:
-                            unrestrict_data = unrestrict_resp.json()
-                            return {
-                                "download_url": unrestrict_data.get("download"),
-                                "filename": unrestrict_data.get("filename"),
-                                "filesize": unrestrict_data.get("filesize"),
-                                "provider": "Real-Debrid"
-                            }
-    return None
-
-@app.get("/api/movies/{movie_id}/direct-download", response_model=DirectDownloadResponse)
-@limiter.limit("20/minute")
-async def get_direct_movie_download(
-    request: Request,
-    movie_id: str,
-    quality: str = Query("1080p", description="Quality: 720p, 1080p, 2160p")
-):
-    """
-    Resolves torrent to a direct high-speed HTTP .mp4 download link via Debrid API (Torbox / Real-Debrid).
-    """
-    clean_id = str(movie_id).strip()
-    if not TORBOX_API_KEY and not REAL_DEBRID_API_KEY:
-        return DirectDownloadResponse(
-            available=False,
-            movie_id=clean_id,
-            quality=quality,
-            message="Direct MP4 download resolver requires TORBOX_API_KEY or REAL_DEBRID_API_KEY in .env. Get a free API key at https://torbox.app"
-        )
-
-    # 1. Fetch download info for this movie
-    downloads_resp = await get_movie_downloads(request, clean_id)
-    if not downloads_resp.available or not downloads_resp.downloads:
-        raise HTTPException(status_code=404, detail="No torrents found for this movie to resolve")
-
-    # 2. Pick requested quality or first available
-    chosen = None
-    for d in downloads_resp.downloads:
-        if quality.lower() in d.quality.lower():
-            chosen = d
-            break
-    if not chosen:
-        chosen = downloads_resp.downloads[0]
-
-    # 3. Resolve via Torbox or Real-Debrid
-    resolved = None
-    if TORBOX_API_KEY:
-        try:
-            resolved = await resolve_torbox_link(chosen.magnet_url, chosen.info_hash or "")
-        except Exception as e:
-            logger.warning("Torbox resolve failed: %s", e)
-
-    if not resolved and REAL_DEBRID_API_KEY:
-        try:
-            resolved = await resolve_realdebrid_link(chosen.magnet_url)
-        except Exception as e:
-            logger.warning("Real-Debrid resolve failed: %s", e)
-
-    if resolved and resolved.get("download_url"):
-        return DirectDownloadResponse(
-            available=True,
-            movie_id=clean_id,
-            quality=chosen.quality,
-            download_url=resolved.get("download_url"),
-            filename=resolved.get("filename"),
-            filesize=resolved.get("filesize"),
-            provider=resolved.get("provider"),
-            message="Direct MP4 download link resolved successfully"
-        )
-
-    return DirectDownloadResponse(
-        available=False,
-        movie_id=clean_id,
-        quality=chosen.quality,
-        message="Debrid provider is processing or could not unrestrict this file."
     )
 
 @app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)
