@@ -98,6 +98,10 @@ PORT = int(os.getenv("PORT", "8000"))
 HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+QBITTORRENT_URL = os.getenv("QBITTORRENT_URL", "http://127.0.0.1:8080").rstrip("/")
+QBITTORRENT_USERNAME = os.getenv("QBITTORRENT_USERNAME", "admin")
+QBITTORRENT_PASSWORD = os.getenv("QBITTORRENT_PASSWORD", "")
+QBITTORRENT_DOWNLOAD_DIR = os.getenv("QBITTORRENT_DOWNLOAD_DIR", "").strip()
 
 # TMDB Genre ID to Name Mapping
 TMDB_GENRES = {
@@ -370,6 +374,31 @@ class MovieDownloadResponse(BaseModel):
     year: Optional[int] = None
     available: bool
     downloads: List[MovieDownloadItem] = []
+
+class QBittorrentStatusResponse(BaseModel):
+    configured: bool
+    connected: bool
+    version: Optional[str] = None
+    message: Optional[str] = None
+
+class QBittorrentAddResponse(BaseModel):
+    available: bool
+    movie_id: str
+    quality: Optional[str] = None
+    title: Optional[str] = None
+    torrent_hash: Optional[str] = None
+    message: str
+
+class QBittorrentTorrent(BaseModel):
+    hash: str
+    name: str
+    state: str
+    progress: float
+    size: int
+    downloaded: int
+    dlspeed: int
+    eta: int
+    save_path: Optional[str] = None
 
 class TMDBRecommendationItem(BaseModel):
     id: Optional[int] = None
@@ -2056,6 +2085,119 @@ async def get_movie_downloads(request: Request, movie_id: str):
 
     cache.set(cache_key, result.model_dump(), expire=86400)
     return result
+
+async def qbittorrent_request(method: str, path: str, **kwargs) -> httpx.Response:
+    """Make an authenticated request to the local qBittorrent Web API."""
+    if not QBITTORRENT_PASSWORD:
+        raise RuntimeError("QBITTORRENT_PASSWORD is not configured")
+
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        login = await client.post(
+            f"{QBITTORRENT_URL}/api/v2/auth/login",
+            data={"username": QBITTORRENT_USERNAME, "password": QBITTORRENT_PASSWORD},
+        )
+        if login.status_code != 200 or login.text.strip() != "Ok.":
+            raise RuntimeError("qBittorrent authentication failed")
+
+        return await client.request(method, f"{QBITTORRENT_URL}{path}", **kwargs)
+
+def qbit_error_response(exc: Exception) -> JSONResponse:
+    logger.warning("qBittorrent request failed: %s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "qBittorrent is unavailable. Check that it is running and that QBITTORRENT_PASSWORD is correct.",
+        },
+    )
+
+@app.get("/api/qbittorrent/status", response_model=QBittorrentStatusResponse)
+@limiter.limit("30/minute")
+async def get_qbittorrent_status(request: Request):
+    if not QBITTORRENT_PASSWORD:
+        return QBittorrentStatusResponse(
+            configured=False,
+            connected=False,
+            message="Set QBITTORRENT_PASSWORD in .env to enable qBittorrent integration.",
+        )
+    try:
+        response = await qbittorrent_request("GET", "/api/v2/app/version")
+        if response.status_code != 200:
+            raise RuntimeError(f"qBittorrent returned HTTP {response.status_code}")
+        return QBittorrentStatusResponse(
+            configured=True,
+            connected=True,
+            version=response.text.strip(),
+            message="qBittorrent is connected",
+        )
+    except Exception as exc:
+        return QBittorrentStatusResponse(
+            configured=True,
+            connected=False,
+            message=str(exc),
+        )
+
+@app.post("/api/movies/{movie_id}/qbittorrent", response_model=QBittorrentAddResponse)
+@limiter.limit("20/minute")
+async def add_movie_to_qbittorrent(
+    request: Request,
+    movie_id: str,
+    quality: str = Query("1080p", description="Quality: 720p, 1080p, 2160p"),
+):
+    """Add a movie's selected magnet link to the local qBittorrent client."""
+    clean_id = str(movie_id).strip()
+    if not QBITTORRENT_PASSWORD:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "qBittorrent is not configured. Set QBITTORRENT_PASSWORD in .env."},
+        )
+
+    downloads = await get_movie_downloads(request, clean_id)
+    if not downloads.available or not downloads.downloads:
+        raise HTTPException(status_code=404, detail="No torrents found for this movie")
+
+    chosen = next(
+        (item for item in downloads.downloads if quality.lower() in item.quality.lower()),
+        downloads.downloads[0],
+    )
+    if not chosen.magnet_url:
+        raise HTTPException(status_code=422, detail="Selected torrent has no magnet link")
+
+    data = {"urls": chosen.magnet_url, "category": "movie-recommender"}
+    if QBITTORRENT_DOWNLOAD_DIR:
+        data["savepath"] = QBITTORRENT_DOWNLOAD_DIR
+
+    try:
+        response = await qbittorrent_request("POST", "/api/v2/torrents/add", data=data)
+        if response.status_code != 200 or response.text.strip() != "Ok.":
+            raise RuntimeError(f"qBittorrent returned HTTP {response.status_code}: {response.text[:200]}")
+    except Exception as exc:
+        return qbit_error_response(exc)
+
+    return QBittorrentAddResponse(
+        available=True,
+        movie_id=clean_id,
+        quality=chosen.quality,
+        title=downloads.title,
+        torrent_hash=chosen.info_hash,
+        message="Torrent added to qBittorrent",
+    )
+
+@app.get("/api/qbittorrent/torrents", response_model=List[QBittorrentTorrent])
+@limiter.limit("30/minute")
+async def list_qbittorrent_torrents(request: Request):
+    """Return active and completed downloads from the local qBittorrent client."""
+    if not QBITTORRENT_PASSWORD:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "qBittorrent is not configured. Set QBITTORRENT_PASSWORD in .env."},
+        )
+    try:
+        response = await qbittorrent_request("GET", "/api/v2/torrents/info")
+        if response.status_code != 200:
+            raise RuntimeError(f"qBittorrent returned HTTP {response.status_code}")
+        return [QBittorrentTorrent(**torrent) for torrent in response.json()]
+    except Exception as exc:
+        return qbit_error_response(exc)
 
 @app.get("/api/movies/{movie_id}/torrent/{info_hash}")
 @limiter.limit("30/minute")

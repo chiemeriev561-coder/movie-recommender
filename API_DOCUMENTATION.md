@@ -230,7 +230,29 @@ curl "http://localhost:8000/api/movies/550/downloads"
 }
 ```
 
-### 7. Top Rated Movies
+### 7. Local qBittorrent Integration
+
+The optional qBittorrent integration adds torrents to a qBittorrent instance running on the same computer. Configure `QBITTORRENT_URL`, `QBITTORRENT_USERNAME`, `QBITTORRENT_PASSWORD`, and optionally `QBITTORRENT_DOWNLOAD_DIR` in `.env`.
+
+Check the connection:
+
+```text
+GET /api/qbittorrent/status
+```
+
+Add a movie to qBittorrent:
+
+```text
+POST /api/movies/{movie_id}/qbittorrent?quality=1080p
+```
+
+View download progress:
+
+```text
+GET /api/qbittorrent/torrents
+```
+
+### 8. Top Rated Movies
 
 ```
 GET /api/movies/top?limit=10

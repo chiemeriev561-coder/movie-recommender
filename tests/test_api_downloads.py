@@ -217,3 +217,55 @@ def test_downloads_endpoint_tmdb_404(monkeypatch):
     response = client.get("/api/movies/000000/downloads")
     assert response.status_code == 404
     assert response.json()["detail"] == "Movie not found on TMDB"
+
+def test_qbittorrent_status(monkeypatch):
+    monkeypatch.setattr(api, "QBITTORRENT_PASSWORD", "test-password")
+
+    async def fake_qbittorrent_request(method, path, **kwargs):
+        response = MagicMock()
+        response.status_code = 200
+        response.text = "v5.2.3"
+        return response
+
+    monkeypatch.setattr(api, "qbittorrent_request", fake_qbittorrent_request)
+
+    response = client.get("/api/qbittorrent/status")
+    assert response.status_code == 200
+    assert response.json()["connected"] is True
+    assert response.json()["version"] == "v5.2.3"
+
+def test_add_movie_to_qbittorrent(monkeypatch):
+    monkeypatch.setattr(api, "QBITTORRENT_PASSWORD", "test-password")
+    movie_downloads = api.MovieDownloadResponse(
+        movie_id="tt0137523",
+        title="Fight Club",
+        available=True,
+        downloads=[api.MovieDownloadItem(
+            quality="1080p",
+            type="bluray",
+            size="2.40 GB",
+            info_hash="HASH123",
+            torrent_url="https://example.test/movie.torrent",
+            magnet_url="magnet:?xt=urn:btih:HASH123",
+        )],
+    )
+
+    async def fake_get_movie_downloads(request, movie_id):
+        return movie_downloads
+
+    async def fake_qbittorrent_request(method, path, **kwargs):
+        assert method == "POST"
+        assert path == "/api/v2/torrents/add"
+        assert kwargs["data"]["urls"] == "magnet:?xt=urn:btih:HASH123"
+        response = MagicMock()
+        response.status_code = 200
+        response.text = "Ok."
+        return response
+
+    monkeypatch.setattr(api, "get_movie_downloads", fake_get_movie_downloads)
+    monkeypatch.setattr(api, "qbittorrent_request", fake_qbittorrent_request)
+
+    response = client.post("/api/movies/tt0137523/qbittorrent?quality=1080p")
+    assert response.status_code == 200
+    assert response.json()["available"] is True
+    assert response.json()["torrent_hash"] == "HASH123"
