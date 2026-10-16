@@ -180,79 +180,7 @@ curl "http://localhost:8000/api/movies/550/stream"
 }
 ```
 
-### 6. Movie Downloads
-
-```
-GET /api/movies/{movie_id}/downloads
-```
-
-Get available multi-quality torrent download links (`.torrent`) and magnet links for a given movie. Supports TMDB ID (e.g. `550`) or IMDB ID (e.g. `tt0137523`). Results are cached for 24 hours.
-
-**Example:**
-
-```bash
-curl "http://localhost:8000/api/movies/550/downloads"
-```
-
-**Response:**
-
-```json
-{
-  "movie_id": "550",
-  "imdb_id": "tt0137523",
-  "title": "Fight Club",
-  "year": 1999,
-  "available": true,
-  "downloads": [
-    {
-      "quality": "720p",
-      "type": "bluray",
-      "size": "1.25 GB",
-      "size_bytes": 1342177280,
-      "seeds": 100,
-      "peers": 25,
-      "info_hash": "0FACFB2D11C9A8F15281A909B45084E6425EF2F0",
-      "torrent_url": "https://yts.gg/torrent/download/0FACFB2D11C9A8F15281A909B45084E6425EF2F0",
-      "magnet_url": "magnet:?xt=urn:btih:0FACFB2D11C9A8F15281A909B45084E6425EF2F0&dn=Fight%20Club&tr=udp%3A//tracker.opentrackr.org%3A1337/announce..."
-    },
-    {
-      "quality": "1080p",
-      "type": "bluray",
-      "size": "2.40 GB",
-      "size_bytes": 2576980377,
-      "seeds": 250,
-      "peers": 40,
-      "info_hash": "...",
-      "torrent_url": "https://yts.gg/torrent/download/...",
-      "magnet_url": "magnet:?xt=urn:btih:..."
-    }
-  ]
-}
-```
-
-### 7. Local qBittorrent Integration
-
-The optional qBittorrent integration adds torrents to a qBittorrent instance running on the same computer. Configure `QBITTORRENT_URL`, `QBITTORRENT_USERNAME`, `QBITTORRENT_PASSWORD`, and optionally `QBITTORRENT_DOWNLOAD_DIR` in `.env`.
-
-Check the connection:
-
-```text
-GET /api/qbittorrent/status
-```
-
-Add a movie to qBittorrent:
-
-```text
-POST /api/movies/{movie_id}/qbittorrent?quality=1080p
-```
-
-View download progress:
-
-```text
-GET /api/qbittorrent/torrents
-```
-
-### 8. Top Rated Movies
+### 6. Top Rated Movies
 
 ```
 GET /api/movies/top?limit=10
@@ -596,4 +524,3 @@ The API provides detailed logging for:
 ## License
 
 This API is part of the Movie Recommender project.
- http://127.0.0.1:8080
