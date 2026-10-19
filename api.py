@@ -4,6 +4,14 @@ FastAPI application exposing movie recommendation functionality as REST endpoint
 """
 
 import os
+import sys
+from pathlib import Path
+
+# Ensure local site packages / snap packages are discoverable
+snap_dist_packages = "/home/victor/snap/antigravity-cli/common/local/lib/python3.14/dist-packages"
+if Path(snap_dist_packages).is_dir() and snap_dist_packages not in sys.path:
+    sys.path.insert(0, snap_dist_packages)
+
 import logging
 import asyncio
 import hashlib
@@ -97,6 +105,10 @@ PORT = int(os.getenv("PORT", "8000"))
 HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+
+# Scraper Microservice Configuration (Port 8001)
+SCRAPER_SERVICE_URL = os.getenv("SCRAPER_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/")
+SCRAPER_SERVICE_TIMEOUT = float(os.getenv("SCRAPER_SERVICE_TIMEOUT", "6.0"))
 
 # TMDB Genre ID to Name Mapping
 TMDB_GENRES = {
@@ -349,6 +361,33 @@ class StreamResponse(BaseModel):
     provider: str
     fallback_stream_url: Optional[str] = None
     fallback_provider: Optional[str] = None
+
+class MovieDownloadOption(BaseModel):
+    quality: str
+    download_url: str
+    file_size: Optional[str] = None
+    hoster: Optional[str] = "downloadwella"
+    direct_url: Optional[str] = None
+
+class MovieDownloadsResponse(BaseModel):
+    movie_id: str
+    title: str
+    available: bool = False
+    options: List[MovieDownloadOption] = []
+    source_url: Optional[str] = None
+    status: str = "ok"
+    error: Optional[str] = None
+
+class DownloadResolveRequest(BaseModel):
+    url: str
+
+class DownloadResolveResponse(BaseModel):
+    original_url: str
+    direct_url: Optional[str] = None
+    file_name: Optional[str] = None
+    file_size: Optional[str] = None
+    status: str = "pending"
+    error: Optional[str] = None
 
 class TMDBRecommendationItem(BaseModel):
     id: Optional[int] = None
@@ -1881,6 +1920,183 @@ async def get_movie_stream_url(request: Request, movie_id: str):
         fallback_stream_url=fallback_url,
         fallback_provider="Nontongo.win"
     )
+
+@app.get("/api/movies/{movie_id}/downloads", response_model=MovieDownloadsResponse)
+@limiter.limit("30/minute")
+async def get_movie_downloads(request: Request, movie_id: str, title: Optional[str] = Query(None)):
+    """
+    Returns available high-speed download options for a movie from the isolated scraper service.
+    Decoupled and circuit-broken: If the scraper service on port 8001 is offline or times out,
+    returns available=False gracefully without impacting the primary API or recommendations.
+    """
+    clean_id = str(movie_id).strip()
+    target_title = title.strip() if title else None
+
+    # If title not provided, attempt to look it up from local movie records or TMDB
+    if not target_title:
+        try:
+            if clean_id.isdigit():
+                num_id = int(clean_id)
+                for (m_name, _), m in _movies_map.items():
+                    if getattr(m, "id", None) == num_id or m.get("id") == num_id:
+                        target_title = m.get("name")
+                        break
+            if not target_title and TMDB_API_KEY:
+                async with httpx.AsyncClient(timeout=4.0) as client:
+                    resp = await client.get(
+                        f"https://api.themoviedb.org/3/movie/{clean_id}",
+                        params={"api_key": TMDB_API_KEY}
+                    )
+                    if resp.status_code == 200:
+                        target_title = resp.json().get("title")
+        except Exception as exc:
+            logger.debug("Could not resolve movie title for id %s: %s", clean_id, exc)
+
+    if not target_title:
+        target_title = clean_id
+
+    # Check cache first (30 minutes)
+    cache_key = f"movie_dl_{clean_id}"
+    cached_val = cache.get(cache_key)
+    if cached_val:
+        return MovieDownloadsResponse(**cached_val)
+
+    # Communicate with Scraper Service on Port 8001
+    try:
+        async with httpx.AsyncClient(timeout=SCRAPER_SERVICE_TIMEOUT) as scraper_client:
+            # 1. Search for movie
+            search_resp = await scraper_client.post(
+                f"{SCRAPER_SERVICE_URL}/api/v1/scraper/search",
+                json={"query": target_title, "limit": 1}
+            )
+            if search_resp.status_code != 200:
+                return MovieDownloadsResponse(
+                    movie_id=clean_id,
+                    title=target_title,
+                    available=False,
+                    options=[],
+                    status="scraper_error",
+                    error=f"Scraper search returned status {search_resp.status_code}"
+                )
+
+            search_data = search_resp.json()
+            results = search_data.get("results", [])
+            if not results:
+                res = MovieDownloadsResponse(
+                    movie_id=clean_id,
+                    title=target_title,
+                    available=False,
+                    options=[],
+                    status="not_found",
+                    error="No download sources found for movie title"
+                )
+                cache.set(cache_key, res.model_dump(), expire=1800)
+                return res
+
+            first_match = results[0]
+            movie_page_url = first_match.get("url")
+
+            # 2. Get download options
+            options_resp = await scraper_client.post(
+                f"{SCRAPER_SERVICE_URL}/api/v1/scraper/options",
+                json={"url": movie_page_url, "title": target_title}
+            )
+            if options_resp.status_code != 200:
+                return MovieDownloadsResponse(
+                    movie_id=clean_id,
+                    title=target_title,
+                    available=False,
+                    options=[],
+                    status="scraper_error",
+                    error=f"Scraper options returned status {options_resp.status_code}"
+                )
+
+            options_data = options_resp.json()
+            options = [
+                MovieDownloadOption(
+                    quality=opt.get("quality", "HD"),
+                    download_url=opt.get("download_url"),
+                    file_size=opt.get("file_size"),
+                    hoster=opt.get("hoster", "downloadwella"),
+                    direct_url=opt.get("direct_url")
+                )
+                for opt in options_data.get("options", [])
+            ]
+
+            res = MovieDownloadsResponse(
+                movie_id=clean_id,
+                title=options_data.get("title") or target_title,
+                available=len(options) > 0,
+                options=options,
+                source_url=movie_page_url,
+                status="ok"
+            )
+            cache.set(cache_key, res.model_dump(), expire=3600)
+            return res
+
+    except (httpx.RequestError, httpx.TimeoutException) as exc:
+        logger.warning("Scraper microservice unavailable or timed out for movie_id=%s: %s", clean_id, exc)
+        return MovieDownloadsResponse(
+            movie_id=clean_id,
+            title=target_title,
+            available=False,
+            options=[],
+            status="scraper_unavailable",
+            error="Download service is currently unreachable"
+        )
+    except Exception as exc:
+        logger.exception("Unexpected error communicating with scraper service: %s", exc)
+        return MovieDownloadsResponse(
+            movie_id=clean_id,
+            title=target_title,
+            available=False,
+            options=[],
+            status="internal_error",
+            error=str(exc)
+        )
+
+@app.post("/api/movies/downloads/resolve", response_model=DownloadResolveResponse)
+@limiter.limit("20/minute")
+async def resolve_movie_download(request: Request, body: DownloadResolveRequest):
+    """
+    Resolve an intermediate hoster link (e.g. Downloadwella) to a direct CDN download link.
+    Delegates to the isolated Scraper Microservice (Port 8001).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=SCRAPER_SERVICE_TIMEOUT + 4.0) as scraper_client:
+            resp = await scraper_client.post(
+                f"{SCRAPER_SERVICE_URL}/api/v1/scraper/bypass",
+                json={"url": body.url}
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return DownloadResolveResponse(
+                    original_url=data.get("original_url", body.url),
+                    direct_url=data.get("direct_url"),
+                    file_name=data.get("file_name"),
+                    file_size=data.get("file_size"),
+                    status=data.get("status", "failed"),
+                    error=data.get("error")
+                )
+            return DownloadResolveResponse(
+                original_url=body.url,
+                status="failed",
+                error=f"Bypass service returned HTTP {resp.status_code}"
+            )
+    except (httpx.RequestError, httpx.TimeoutException) as exc:
+        logger.warning("Scraper bypass service unreachable: %s", exc)
+        return DownloadResolveResponse(
+            original_url=body.url,
+            status="failed",
+            error="Bypass service is currently unreachable"
+        )
+    except Exception as exc:
+        logger.exception("Unexpected error in download link resolution: %s", exc)
+        return DownloadResolveResponse(
+            original_url=body.url,
+            status="failed",
+            error=str(exc)
+        )
 
 @app.get("/api/movies/{movie_id}/recommendations", response_model=TMDBRecommendationsResponse)
 @limiter.limit("20/minute")

@@ -3,9 +3,16 @@
 Startup script for the Movie Recommender API
 """
 
-import uvicorn
-import sys
 import os
+import sys
+from pathlib import Path
+
+# Ensure local site packages / snap packages are discoverable
+snap_dist_packages = "/home/victor/snap/antigravity-cli/common/local/lib/python3.14/dist-packages"
+if Path(snap_dist_packages).is_dir() and snap_dist_packages not in sys.path:
+    sys.path.insert(0, snap_dist_packages)
+
+import uvicorn
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
