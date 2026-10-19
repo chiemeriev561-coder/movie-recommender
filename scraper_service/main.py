@@ -31,6 +31,8 @@ from scraper_service.models import (
     ScraperStatsResponse
 )
 
+from scraper_service.client import ThenkiriClient
+
 # Setup logging
 logging.basicConfig(
     level=getattr(logging, SCRAPER_LOG_LEVEL.upper(), logging.INFO),
@@ -47,6 +49,8 @@ _metrics: Dict[str, Any] = {
     "total_duration_ms": 0.0,
 }
 
+scraper_client = ThenkiriClient()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -55,6 +59,7 @@ async def lifespan(app: FastAPI):
     logger.info("Scraper Service starting up on port %d...", SCRAPER_PORT)
     yield
     logger.info("Scraper Service shutting down...")
+    await scraper_client.close()
 
 
 app = FastAPI(
@@ -146,18 +151,19 @@ async def get_stats():
 @app.post("/api/v1/scraper/search", response_model=SearchResponse, tags=["Scraper"])
 async def search_movie_endpoint(req: SearchRequest):
     """
-    Search for movies across target download providers.
-    Phase 1 skeleton returning structured response.
+    Search for movies across Thenkiri download providers.
+    Returns list of matching movie cards with titles, URLs, years, and posters.
     """
     start_time = time.perf_counter()
+    results, error_msg = await scraper_client.search_movies(query=req.query, limit=req.limit or 10)
     duration_ms = (time.perf_counter() - start_time) * 1000.0
-    
-    # In Phase 1 skeleton: return valid empty / mockable response
+
     return SearchResponse(
         query=req.query,
-        total_results=0,
-        results=[],
-        duration_ms=round(duration_ms, 2)
+        total_results=len(results),
+        results=results,
+        duration_ms=round(duration_ms, 2),
+        error=error_msg
     )
 
 
@@ -165,30 +171,42 @@ async def search_movie_endpoint(req: SearchRequest):
 async def download_options_endpoint(req: DownloadOptionsRequest):
     """
     Retrieve available download options (qualities/links) for a movie page URL.
-    Phase 1 skeleton returning structured response.
+    Extracts direct hoster links (e.g. Downloadwella) and file sizes.
     """
     start_time = time.perf_counter()
+    options, found_title, error_msg = await scraper_client.get_download_options(movie_url=req.url, title=req.title)
     duration_ms = (time.perf_counter() - start_time) * 1000.0
-    
+
     return DownloadOptionsResponse(
         url=req.url,
-        title=req.title,
-        options=[],
-        duration_ms=round(duration_ms, 2)
+        title=found_title or req.title,
+        options=options,
+        duration_ms=round(duration_ms, 2),
+        error=error_msg
     )
+
+
+from scraper_service.bypass import resolve_download_link
 
 
 @app.post("/api/v1/scraper/bypass", response_model=BypassResponse, tags=["Scraper"])
 async def bypass_intermediate_endpoint(req: BypassRequest):
     """
-    Bypass intermediate hoster waiting screen / countdown / captchas.
-    Phase 1 skeleton returning structured response.
+    Bypass intermediate hoster waiting screen / countdown / form.
+    Resolves intermediate Downloadwella link directly to final CDN stream link.
     """
     start_time = time.perf_counter()
+    direct_url, file_name, file_size, error_msg = await resolve_download_link(url=req.url)
     duration_ms = (time.perf_counter() - start_time) * 1000.0
-    
+
+    status = "resolved" if direct_url else "failed"
+
     return BypassResponse(
         original_url=req.url,
-        status="pending",
-        duration_ms=round(duration_ms, 2)
+        direct_url=direct_url,
+        file_name=file_name,
+        file_size=file_size,
+        status=status,
+        duration_ms=round(duration_ms, 2),
+        error=error_msg
     )
