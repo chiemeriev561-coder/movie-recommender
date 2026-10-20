@@ -2093,16 +2093,23 @@ async def get_tv_download_options(
                 return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
 
             # Search results can contain both a movie and a series with the
-            # same title. Prefer Thenkiri URLs that identify a TV series or
-            # season before falling back to the first search result.
+            # same title. Prefer an explicit "TV Series" title first.
             series_url = None
             for result in results:
-                result_url = str(result.get("url") or "")
-                url_lower = result_url.lower()
-                if "tv-series" in url_lower or "season" in url_lower:
-                    series_url = result_url
+                result_title = str(result.get("title") or "").lower()
+                if "tv series" in result_title:
+                    series_url = str(result.get("url") or "")
                     break
 
+            # If the title is not descriptive, use the TV-series URL marker.
+            if not series_url:
+                for result in results:
+                    result_url = str(result.get("url") or "")
+                    if "tv-series" in result_url.lower():
+                        series_url = result_url
+                        break
+
+            # Final fallback: use the first search result.
             if not series_url:
                 series_url = str(results[0].get("url") or "")
             if not series_url:
