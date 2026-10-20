@@ -2072,7 +2072,7 @@ async def get_tv_download_options(
     series_id: int = Path(..., ge=1),
     title: str = Query(..., min_length=1, description="TV Series title")
 ):
-    """Get season and episode download options for a TV series."""
+    """Get download options for a TV series, preferring TV-specific results."""
     target_title = title.strip()
     cache_key = f"tv_dl_options:{series_id}"
     cached = cache.get(cache_key)
@@ -2092,13 +2092,19 @@ async def get_tv_download_options(
             if not results:
                 return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
 
-            tv_result = next(
-                (result for result in results
-                 if "tv-series" in result.get("url", "").lower()
-                 or "season" in result.get("url", "").lower()),
-                results[0]
-            )
-            series_url = tv_result.get("url")
+            # Search results can contain both a movie and a series with the
+            # same title. Prefer Thenkiri URLs that identify a TV series or
+            # season before falling back to the first search result.
+            series_url = None
+            for result in results:
+                result_url = str(result.get("url") or "")
+                url_lower = result_url.lower()
+                if "tv-series" in url_lower or "season" in url_lower:
+                    series_url = result_url
+                    break
+
+            if not series_url:
+                series_url = str(results[0].get("url") or "")
             if not series_url:
                 return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
 
