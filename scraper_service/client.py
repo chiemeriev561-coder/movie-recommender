@@ -19,7 +19,9 @@ from scraper_service.models import (
     SearchResultItem,
     SearchResponse,
     DownloadOptionItem,
-    DownloadOptionsResponse
+    DownloadOptionsResponse,
+    TVEpisodeItem,
+    TVSeasonItem
 )
 
 logger = logging.getLogger("scraper_service.client")
@@ -245,3 +247,60 @@ class ThenkiriClient:
                 ))
 
         return options, page_title
+
+    async def get_tv_options(self, url: str) -> Tuple[List[TVSeasonItem], Optional[str], Optional[str]]:
+        """Extract season and episode links from a Thenkiri TV-series page."""
+        if not url:
+            return [], None, "TV-series URL cannot be empty"
+
+        client = await self.get_client()
+        try:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return [], None, f"Target page returned HTTP {resp.status_code}"
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            seasons, title = self._parse_tv_page(soup, url)
+            return seasons, title, None
+        except httpx.TimeoutException:
+            return [], None, "Target TV-series page timed out"
+        except Exception as exc:
+            logger.error("Error extracting TV options for '%s': %s", url, exc)
+            return [], None, f"Scraper error: {str(exc)}"
+
+    def _parse_tv_page(self, soup: BeautifulSoup, page_url: str) -> Tuple[List[TVSeasonItem], Optional[str]]:
+        """Parse flat TV markup: each h2 starts a season; episode links follow it."""
+        title: Optional[str] = None
+        h1 = soup.find("h1", class_=lambda c: c and "entry-title" in c)
+        if h1:
+            title = h1.get_text(" ", strip=True)
+        elif soup.title:
+            title = soup.title.get_text(" ", strip=True)
+
+        seasons: List[TVSeasonItem] = []
+        current: Optional[TVSeasonItem] = None
+        seen_urls = set()
+
+        for element in soup.find_all(["h2", "a"]):
+            if element.name == "h2":
+                season_name = element.get_text(" ", strip=True)
+                if not season_name:
+                    continue
+                current = TVSeasonItem(season_name=season_name, episodes=[])
+                seasons.append(current)
+                continue
+
+            if current is None:
+                continue
+            name = element.get_text(" ", strip=True)
+            href = element.get("href", "").strip()
+            if "download episode" not in name.lower() or not href:
+                continue
+
+            absolute_url = urllib.parse.urljoin(page_url, href)
+            if absolute_url in seen_urls:
+                continue
+            seen_urls.add(absolute_url)
+            current.episodes.append(TVEpisodeItem(name=name, download_url=absolute_url))
+
+        return [season for season in seasons if season.episodes], title

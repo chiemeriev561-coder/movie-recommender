@@ -378,6 +378,16 @@ class MovieDownloadsResponse(BaseModel):
     status: str = "ok"
     error: Optional[str] = None
 
+class TVDownloadOption(BaseModel):
+    season_name: str
+    episodes: List[dict]
+
+class TVDownloadResponse(BaseModel):
+    series_id: int
+    series_title: str
+    seasons: List[TVDownloadOption]
+    is_available: bool
+
 class DownloadResolveRequest(BaseModel):
     url: str
 
@@ -2054,6 +2064,67 @@ async def get_movie_downloads(request: Request, movie_id: str, title: Optional[s
             status="internal_error",
             error=str(exc)
         )
+
+@app.get("/api/tv/{series_id}/downloads", response_model=TVDownloadResponse)
+@limiter.limit("10/minute")
+async def get_tv_download_options(
+    request: Request,
+    series_id: int = Path(..., ge=1),
+    title: str = Query(..., min_length=1, description="TV Series title")
+):
+    """Get season and episode download options for a TV series."""
+    target_title = title.strip()
+    cache_key = f"tv_dl_options:{series_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return TVDownloadResponse(**cached)
+
+    try:
+        async with httpx.AsyncClient(timeout=SCRAPER_SERVICE_TIMEOUT) as scraper_client:
+            search_resp = await scraper_client.post(
+                f"{SCRAPER_SERVICE_URL}/api/v1/scraper/search",
+                json={"query": target_title, "limit": 10}
+            )
+            if search_resp.status_code != 200:
+                return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
+
+            results = search_resp.json().get("results", [])
+            if not results:
+                return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
+
+            tv_result = next(
+                (result for result in results
+                 if "tv-series" in result.get("url", "").lower()
+                 or "season" in result.get("url", "").lower()),
+                results[0]
+            )
+            series_url = tv_result.get("url")
+            if not series_url:
+                return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
+
+            options_resp = await scraper_client.post(
+                f"{SCRAPER_SERVICE_URL}/api/v1/scraper/tv-options",
+                json={"url": series_url}
+            )
+            if options_resp.status_code != 200:
+                return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
+
+            options_data = options_resp.json()
+            seasons = options_data.get("seasons", [])
+            response = TVDownloadResponse(
+                series_id=series_id,
+                series_title=options_data.get("title") or target_title,
+                seasons=seasons,
+                is_available=bool(seasons)
+            )
+            cache.set(cache_key, response.model_dump(), expire=1800)
+            return response
+    except (httpx.RequestError, httpx.TimeoutException):
+        return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
+    except Exception as exc:
+        logger.exception("Unexpected error communicating with scraper service for series_id=%s: %s", series_id, exc)
+        return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
+
 
 @app.post("/api/movies/downloads/resolve", response_model=DownloadResolveResponse)
 @limiter.limit("20/minute")

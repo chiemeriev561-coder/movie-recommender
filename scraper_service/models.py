@@ -57,6 +57,28 @@ class DownloadOptionsResponse(BaseModel):
     error: Optional[str] = None
 
 
+class TVEpisodeItem(BaseModel):
+    name: str
+    download_url: str
+
+
+class TVSeasonItem(BaseModel):
+    season_name: str
+    episodes: List[TVEpisodeItem]
+
+
+class TVOptionsRequest(BaseModel):
+    url: str = Field(..., description="Target TV-series page URL")
+
+
+class TVOptionsResponse(BaseModel):
+    url: str
+    title: Optional[str] = None
+    seasons: List[TVSeasonItem]
+    duration_ms: float
+    error: Optional[str] = None
+
+
 class BypassRequest(BaseModel):
     url: str = Field(..., description="Target intermediate download page URL to bypass")
 

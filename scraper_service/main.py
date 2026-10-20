@@ -26,6 +26,8 @@ from scraper_service.models import (
     DownloadOptionsRequest,
     DownloadOptionsResponse,
     DownloadOptionItem,
+    TVOptionsRequest,
+    TVOptionsResponse,
     BypassRequest,
     BypassResponse,
     ScraperStatsResponse
@@ -127,6 +129,7 @@ async def root_info():
         "endpoints": {
             "search": "/api/v1/scraper/search",
             "options": "/api/v1/scraper/options",
+            "tv_options": "/api/v1/scraper/tv-options",
             "bypass": "/api/v1/scraper/bypass",
             "stats": "/api/v1/scraper/stats"
         }
@@ -181,6 +184,22 @@ async def download_options_endpoint(req: DownloadOptionsRequest):
         url=req.url,
         title=found_title or req.title,
         options=options,
+        duration_ms=round(duration_ms, 2),
+        error=error_msg
+    )
+
+
+@app.post("/api/v1/scraper/tv-options", response_model=TVOptionsResponse, tags=["Scraper"])
+async def tv_options_endpoint(req: TVOptionsRequest):
+    """Retrieve seasons and episode download links from a TV-series page."""
+    start_time = time.perf_counter()
+    seasons, found_title, error_msg = await scraper_client.get_tv_options(req.url)
+    duration_ms = (time.perf_counter() - start_time) * 1000.0
+
+    return TVOptionsResponse(
+        url=req.url,
+        title=found_title,
+        seasons=seasons,
         duration_ms=round(duration_ms, 2),
         error=error_msg
     )
