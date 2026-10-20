@@ -101,7 +101,7 @@ async def metrics_middleware(request: Request, call_next):
         )
 
 
-@app.get("/health", response_model=HealthResponse, tags=["Health"])
+@app.api_route("/health", methods=["GET", "HEAD"], response_model=HealthResponse, tags=["Health"])
 async def health_check():
     """Liveness & readiness probe."""
     uptime = time.time() - _service_start_time if _service_start_time > 0 else 0.0
