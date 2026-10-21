@@ -2092,19 +2092,33 @@ async def get_tv_download_options(
             if not results:
                 return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
 
-            # Search results can contain both a movie and a series with the
-            # same title. Prefer anything explicitly marked as a TV series,
-            # regardless of the exact title format.
+            # Prefer the result whose title most closely contains the user's
+            # search term, normalizing common title symbols first.
             series_url = None
+            search_term = target_title.lower().replace("&", "and").replace("+", " ").strip()
+            best_match = None
+
             for result in results:
                 result_title = str(result.get("title") or "").lower()
                 result_url = str(result.get("url") or "")
-                if "tv series" in result_title or "tv-series" in result_url.lower():
-                    series_url = result_url
+                normalized_title = result_title.replace("&", "and")
+                if search_term in normalized_title:
+                    best_match = result
                     break
 
-            # If no result is labelled, the first result is still preferable
-            # to returning no download options at all.
+            if best_match:
+                series_url = str(best_match.get("url") or "")
+            else:
+                # If no strong title match exists, prefer an explicitly marked
+                # TV-series result.
+                for result in results:
+                    result_title = str(result.get("title") or "").lower()
+                    result_url = str(result.get("url") or "")
+                    if "tv series" in result_title or "tv-series" in result_url.lower():
+                        series_url = result_url
+                        break
+
+            # If all else fails, the first result is still better than none.
             if not series_url and results:
                 series_url = str(results[0].get("url") or "")
             if not series_url:
