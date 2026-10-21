@@ -306,11 +306,12 @@ class ThenkiriClient:
         opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-dev-shm-usage")
         opts.add_argument("--disable-gpu")
+        opts.add_argument("--blink-settings=imagesEnabled=false")
 
         driver = webdriver.Chrome(options=opts)
         try:
             driver.get(series_url)
-            time.sleep(3)
+            time.sleep(1.5)
 
             selectors = (
                 "button",
@@ -376,7 +377,11 @@ class ThenkiriClient:
                 continue
             name = text
             href = element.get("href", "").strip()
-            if element.name != "a" or "download" not in text_lower or not href:
+            if element.name != "a" or not href:
+                continue
+            if "downloadwella.com" not in href.lower() or (
+                "download" not in text_lower and ".mkv" not in href.lower()
+            ):
                 continue
 
             absolute_url = urllib.parse.urljoin(page_url, href)
