@@ -4,11 +4,22 @@ Provides search_movies and get_download_options with robust error handling.
 """
 
 import re
+import asyncio
+import time
 import urllib.parse
 import logging
 from typing import List, Optional, Tuple
 import httpx
 from bs4 import BeautifulSoup
+
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+except ImportError:  # Selenium is optional for local/dev environments.
+    webdriver = None
+    Options = None
+    By = None
 
 from scraper_service.config import (
     THENKIRI_BASE_URL,
@@ -249,7 +260,12 @@ class ThenkiriClient:
         return options, page_title
 
     async def get_tv_options(self, url: str) -> Tuple[List[TVSeasonItem], Optional[str], Optional[str]]:
-        """Extract season and episode links from a Thenkiri TV-series page."""
+        """Extract all season and episode links from a Thenkiri TV-series page.
+
+        Thenkiri keeps some seasons inside tabs/accordions which are not present
+        in the initial HTTP response. Selenium renders the page and clicks those
+        controls before parsing the resulting DOM.
+        """
         if not url:
             return [], None, "TV-series URL cannot be empty"
 
@@ -259,7 +275,18 @@ class ThenkiriClient:
             if resp.status_code != 200:
                 return [], None, f"Target page returned HTTP {resp.status_code}"
 
-            soup = BeautifulSoup(resp.text, "html.parser")
+            html = resp.text
+            if webdriver is not None:
+                try:
+                    html = await asyncio.to_thread(self._render_tv_page, url)
+                except Exception as exc:
+                    logger.warning(
+                        "Selenium TV render failed for %s; using HTTP HTML: %s",
+                        url,
+                        exc,
+                    )
+
+            soup = BeautifulSoup(html, "html.parser")
             seasons, title = self._parse_tv_page(soup, url)
             return seasons, title, None
         except httpx.TimeoutException:
@@ -268,8 +295,58 @@ class ThenkiriClient:
             logger.error("Error extracting TV options for '%s': %s", url, exc)
             return [], None, f"Scraper error: {str(exc)}"
 
+    @staticmethod
+    def _render_tv_page(series_url: str) -> str:
+        """Render a TV page and click controls that reveal hidden seasons."""
+        if webdriver is None or Options is None or By is None:
+            raise RuntimeError("Selenium is not installed")
+
+        opts = Options()
+        opts.add_argument("--headless=new")
+        opts.add_argument("--no-sandbox")
+        opts.add_argument("--disable-dev-shm-usage")
+        opts.add_argument("--disable-gpu")
+
+        driver = webdriver.Chrome(options=opts)
+        try:
+            driver.get(series_url)
+            time.sleep(3)
+
+            selectors = (
+                "button",
+                ".elementor-tab-title",
+                ".wp-block-button__link",
+                "a[href^='#season']",
+            )
+            clicked = set()
+            for selector in selectors:
+                for button in driver.find_elements(By.CSS_SELECTOR, selector):
+                    text = button.text.strip().upper()
+                    if "SEASON" not in text and "EPISODE" not in text:
+                        continue
+                    # Avoid clicking the same control repeatedly when it matches
+                    # more than one selector.
+                    marker = (text, button.get_attribute("outerHTML"))
+                    if marker in clicked:
+                        continue
+                    clicked.add(marker)
+                    try:
+                        driver.execute_script(
+                            "arguments[0].scrollIntoView({block: 'center'});",
+                            button,
+                        )
+                        time.sleep(0.2)
+                        button.click()
+                        time.sleep(0.5)
+                    except Exception:
+                        logger.debug("Could not click TV tab %r", text, exc_info=True)
+
+            return driver.page_source
+        finally:
+            driver.quit()
+
     def _parse_tv_page(self, soup: BeautifulSoup, page_url: str) -> Tuple[List[TVSeasonItem], Optional[str]]:
-        """Parse flat TV markup: each h2 starts a season; episode links follow it."""
+        """Parse rendered TV markup into season groups and episode links."""
         title: Optional[str] = None
         h1 = soup.find("h1", class_=lambda c: c and "entry-title" in c)
         if h1:
@@ -281,10 +358,15 @@ class ThenkiriClient:
         current: Optional[TVSeasonItem] = None
         seen_urls = set()
 
-        for element in soup.find_all(["h2", "a"]):
-            if element.name == "h2":
+        for element in soup.find_all(["h2", "h3", "h4", "strong", "p", "a"]):
+            text = element.get_text(" ", strip=True)
+            text_lower = text.lower()
+
+            if "season" in text_lower and len(text) < 80:
                 season_name = element.get_text(" ", strip=True)
                 if not season_name:
+                    continue
+                if current and current.season_name == season_name:
                     continue
                 current = TVSeasonItem(season_name=season_name, episodes=[])
                 seasons.append(current)
@@ -292,9 +374,9 @@ class ThenkiriClient:
 
             if current is None:
                 continue
-            name = element.get_text(" ", strip=True)
+            name = text
             href = element.get("href", "").strip()
-            if "download episode" not in name.lower() or not href:
+            if element.name != "a" or "download" not in text_lower or not href:
                 continue
 
             absolute_url = urllib.parse.urljoin(page_url, href)
