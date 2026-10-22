@@ -1,25 +1,15 @@
 """
 HTTP client and parser for Thenkiri movie site.
 Provides search_movies and get_download_options with robust error handling.
+Pure httpx + BeautifulSoup only — no Selenium/Chrome (avoids OOM on Render).
 """
 
 import re
-import asyncio
-import time
 import urllib.parse
 import logging
 from typing import List, Optional, Tuple
 import httpx
 from bs4 import BeautifulSoup
-
-try:
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.common.by import By
-except ImportError:  # Selenium is optional for local/dev environments.
-    webdriver = None
-    Options = None
-    By = None
 
 from scraper_service.config import (
     THENKIRI_BASE_URL,
@@ -28,9 +18,7 @@ from scraper_service.config import (
 )
 from scraper_service.models import (
     SearchResultItem,
-    SearchResponse,
     DownloadOptionItem,
-    DownloadOptionsResponse,
     TVEpisodeItem,
     TVSeasonItem
 )
@@ -100,7 +88,7 @@ class ThenkiriClient:
                 headers=HEADERS,
                 timeout=httpx.Timeout(self.timeout, connect=6.0),
                 follow_redirects=True,
-                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
+                limits=httpx.Limits(max_keepalive_connections=10, max_connections=20)
             )
         return self._client
 
@@ -124,7 +112,7 @@ class ThenkiriClient:
             if resp.status_code != 200:
                 logger.warning("Thenkiri search failed with HTTP status %d", resp.status_code)
                 return [], f"Target site returned HTTP {resp.status_code}"
-            
+
             soup = BeautifulSoup(resp.text, "html.parser")
             return self._parse_search_results(soup, limit), None
 
@@ -139,17 +127,14 @@ class ThenkiriClient:
         """Parse BeautifulSoup DOM of Thenkiri search results page."""
         results: List[SearchResultItem] = []
 
-        # Find search result articles
         articles = soup.find_all("article")
         if not articles:
-            # Fallback to search entries if article tags are absent
             articles = soup.find_all("div", class_=lambda c: c and ("search-entry" in c or "entry" in c))
 
         for art in articles:
             if len(results) >= limit:
                 break
 
-            # Find title and link
             title_tag = art.find(["h2", "h1", "h3"], class_=lambda c: c and "entry-title" in c)
             link_tag = None
             if title_tag:
@@ -161,19 +146,19 @@ class ThenkiriClient:
                 continue
 
             page_url = link_tag["href"]
-            raw_title = link_tag.get_text(strip=True) or title_tag.get_text(strip=True) if title_tag else ""
+            raw_title = link_tag.get_text(strip=True) or (title_tag.get_text(strip=True) if title_tag else "")
             if not raw_title:
                 continue
 
-            # Year extraction
             year = _extract_year(raw_title, page_url)
             cleaned_title = _clean_title(raw_title)
 
-            # Poster image extraction
             poster_url = None
             img_tag = art.find("img")
             if img_tag:
-                poster_url = img_tag.get("src") or img_tag.get("data-src") or img_tag.get("srcset", "").split()[0]
+                poster_url = img_tag.get("src") or img_tag.get("data-src") or (
+                    img_tag.get("srcset", "").split()[0] if img_tag.get("srcset") else None
+                )
 
             results.append(SearchResultItem(
                 title=cleaned_title,
@@ -185,7 +170,9 @@ class ThenkiriClient:
 
         return results
 
-    async def get_download_options(self, movie_url: str, title: Optional[str] = None) -> Tuple[List[DownloadOptionItem], Optional[str], Optional[str]]:
+    async def get_download_options(
+        self, movie_url: str, title: Optional[str] = None
+    ) -> Tuple[List[DownloadOptionItem], Optional[str], Optional[str]]:
         """
         Extract download options from a Thenkiri movie detail page.
         Returns (list_of_options, extracted_title, error_message).
@@ -210,11 +197,12 @@ class ThenkiriClient:
             logger.error("Error extracting download options for '%s': %s", movie_url, exc)
             return [], None, f"Scraper error: {str(exc)}"
 
-    def _parse_download_page(self, soup: BeautifulSoup, page_url: str, fallback_title: Optional[str] = None) -> Tuple[List[DownloadOptionItem], Optional[str]]:
+    def _parse_download_page(
+        self, soup: BeautifulSoup, page_url: str, fallback_title: Optional[str] = None
+    ) -> Tuple[List[DownloadOptionItem], Optional[str]]:
         """Parse download buttons and file metadata from movie detail page."""
         options: List[DownloadOptionItem] = []
 
-        # Extract movie title from h1 or title tag
         page_title = fallback_title
         h1 = soup.find("h1", class_=lambda c: c and "entry-title" in c)
         if h1:
@@ -222,7 +210,6 @@ class ThenkiriClient:
         elif soup.title:
             page_title = _clean_title(soup.title.get_text(strip=True))
 
-        # Extract file size if present (e.g. in .elementor-alert)
         file_size: Optional[str] = None
         alert = soup.find(class_=lambda c: c and "elementor-alert" in c)
         if alert:
@@ -230,7 +217,6 @@ class ThenkiriClient:
             if size_match:
                 file_size = size_match.group(1).strip()
 
-        # Find all download links (downloadwella or other hosters)
         seen_links = set()
         links = soup.find_all("a", href=True)
 
@@ -239,12 +225,16 @@ class ThenkiriClient:
             if not href or href in seen_links:
                 continue
 
-            # Check if this link points to a known file hoster
             is_hoster = any(host in href.lower() for host in ["downloadwella.com", "mega.nz", "drive.google.com"])
-            # Or if it's an elementor download button
-            btn_wrapper = l.find_parent(class_=lambda c: c and "elementor-button" in c) or ("elementor-button" in (l.get("class") or []))
+            btn_wrapper = l.find_parent(class_=lambda c: c and "elementor-button" in c) or (
+                "elementor-button" in (l.get("class") or [])
+            )
 
-            if is_hoster or (btn_wrapper and "download" in l.get_text().lower() and not href.endswith(("/how-to-download/", "/cant-download/"))):
+            if is_hoster or (
+                btn_wrapper
+                and "download" in l.get_text().lower()
+                and not href.endswith(("/how-to-download/", "/cant-download/"))
+            ):
                 seen_links.add(href)
                 quality = _infer_quality(href, l.get_text(strip=True))
                 hoster = "downloadwella" if "downloadwella" in href.lower() else "external"
@@ -260,94 +250,41 @@ class ThenkiriClient:
         return options, page_title
 
     async def get_tv_options(self, url: str) -> Tuple[List[TVSeasonItem], Optional[str], Optional[str]]:
-        """Extract all season and episode links from a Thenkiri TV-series page.
+        """
+        Extract all season and episode links from a Thenkiri TV-series page.
 
-        Thenkiri keeps some seasons inside tabs/accordions which are not present
-        in the initial HTTP response. Selenium renders the page and clicks those
-        controls before parsing the resulting DOM.
+        Pure httpx + BeautifulSoup only. No Selenium/Chrome.
+        This keeps memory under ~20-40 MB instead of 300-500+ MB and avoids
+        OOM kills on Render free/starter instances.
         """
         if not url:
             return [], None, "TV-series URL cannot be empty"
 
+        logger.info("Fetching TV download options (pure HTTP): %s", url)
         client = await self.get_client()
+
         try:
-            resp = await client.get(url)
+            # Extra Referer makes the request look like a normal site navigation
+            resp = await client.get(url, headers={**HEADERS, "Referer": THENKIRI_BASE_URL + "/"})
             if resp.status_code != 200:
                 return [], None, f"Target page returned HTTP {resp.status_code}"
 
-            html = resp.text
-            if webdriver is not None:
-                try:
-                    html = await asyncio.to_thread(self._render_tv_page, url)
-                except Exception as exc:
-                    logger.warning(
-                        "Selenium TV render failed for %s; using HTTP HTML: %s",
-                        url,
-                        exc,
-                    )
-
-            soup = BeautifulSoup(html, "html.parser")
+            soup = BeautifulSoup(resp.text, "html.parser")
             seasons, title = self._parse_tv_page(soup, url)
+            logger.info("Found %d seasons with episodes for %s", len(seasons), url)
             return seasons, title, None
+
         except httpx.TimeoutException:
             return [], None, "Target TV-series page timed out"
         except Exception as exc:
             logger.error("Error extracting TV options for '%s': %s", url, exc)
             return [], None, f"Scraper error: {str(exc)}"
 
-    @staticmethod
-    def _render_tv_page(series_url: str) -> str:
-        """Render a TV page and click controls that reveal hidden seasons."""
-        if webdriver is None or Options is None or By is None:
-            raise RuntimeError("Selenium is not installed")
-
-        opts = Options()
-        opts.add_argument("--headless=new")
-        opts.add_argument("--no-sandbox")
-        opts.add_argument("--disable-dev-shm-usage")
-        opts.add_argument("--disable-gpu")
-        opts.add_argument("--blink-settings=imagesEnabled=false")
-
-        driver = webdriver.Chrome(options=opts)
-        try:
-            driver.get(series_url)
-            time.sleep(1.5)
-
-            selectors = (
-                "button",
-                ".elementor-tab-title",
-                ".wp-block-button__link",
-                "a[href^='#season']",
-            )
-            clicked = set()
-            for selector in selectors:
-                for button in driver.find_elements(By.CSS_SELECTOR, selector):
-                    text = button.text.strip().upper()
-                    if "SEASON" not in text and "EPISODE" not in text:
-                        continue
-                    # Avoid clicking the same control repeatedly when it matches
-                    # more than one selector.
-                    marker = (text, button.get_attribute("outerHTML"))
-                    if marker in clicked:
-                        continue
-                    clicked.add(marker)
-                    try:
-                        driver.execute_script(
-                            "arguments[0].scrollIntoView({block: 'center'});",
-                            button,
-                        )
-                        time.sleep(0.2)
-                        button.click()
-                        time.sleep(0.5)
-                    except Exception:
-                        logger.debug("Could not click TV tab %r", text, exc_info=True)
-
-            return driver.page_source
-        finally:
-            driver.quit()
-
     def _parse_tv_page(self, soup: BeautifulSoup, page_url: str) -> Tuple[List[TVSeasonItem], Optional[str]]:
-        """Parse rendered TV markup into season groups and episode links."""
+        """
+        Parse TV markup into season groups and episode links.
+        Works on the static HTML returned by the server (no JS rendering).
+        """
         title: Optional[str] = None
         h1 = soup.find("h1", class_=lambda c: c and "entry-title" in c)
         if h1:
@@ -357,37 +294,59 @@ class ThenkiriClient:
 
         seasons: List[TVSeasonItem] = []
         current: Optional[TVSeasonItem] = None
-        seen_urls = set()
+        seen_urls: set = set()
 
         for element in soup.find_all(["h2", "h3", "h4", "strong", "p", "a"]):
             text = element.get_text(" ", strip=True)
+            text_upper = text.upper()
             text_lower = text.lower()
 
-            if "season" in text_lower and len(text) < 80:
-                season_name = element.get_text(" ", strip=True)
-                if not season_name:
-                    continue
-                if current and current.season_name == season_name:
-                    continue
-                current = TVSeasonItem(season_name=season_name, episodes=[])
-                seasons.append(current)
+            # Season / episode header
+            if ("SEASON" in text_upper or "EPISODE" in text_upper) and len(text) < 80:
+                # Prefer real season headers; avoid creating a new group for every episode title
+                if "SEASON" in text_upper:
+                    if current and current.season_name == text:
+                        continue
+                    current = TVSeasonItem(season_name=text, episodes=[])
+                    seasons.append(current)
                 continue
 
-            if current is None:
+            # Download link belonging to the current season
+            if element.name != "a" or current is None:
                 continue
-            name = text
-            href = element.get("href", "").strip()
-            if element.name != "a" or not href:
+
+            href = (element.get("href") or "").strip()
+            if not href:
                 continue
-            if "downloadwella.com" not in href.lower() or (
-                "download" not in text_lower and ".mkv" not in href.lower()
-            ):
+            if "downloadwella.com" not in href.lower():
+                continue
+            # Require some signal that this is an actual download link
+            if "download" not in text_lower and ".mkv" not in href.lower() and "episode" not in text_lower:
                 continue
 
             absolute_url = urllib.parse.urljoin(page_url, href)
             if absolute_url in seen_urls:
                 continue
             seen_urls.add(absolute_url)
-            current.episodes.append(TVEpisodeItem(name=name, download_url=absolute_url))
 
-        return [season for season in seasons if season.episodes], title
+            ep_name = text if text and ("episode" in text_lower or "download" in text_lower) else "Download Episode"
+            current.episodes.append(TVEpisodeItem(name=ep_name, download_url=absolute_url))
+
+        # Fallback: page has download links but no clear season headers
+        if not seasons or all(not s.episodes for s in seasons):
+            all_episodes: List[TVEpisodeItem] = []
+            for a in soup.find_all("a", href=True):
+                href = a["href"].strip()
+                if "downloadwella.com" not in href.lower():
+                    continue
+                absolute_url = urllib.parse.urljoin(page_url, href)
+                if absolute_url in seen_urls:
+                    continue
+                seen_urls.add(absolute_url)
+                name = a.get_text(" ", strip=True) or "Download Episode"
+                all_episodes.append(TVEpisodeItem(name=name, download_url=absolute_url))
+
+            if all_episodes:
+                seasons = [TVSeasonItem(season_name="All Episodes", episodes=all_episodes)]
+
+        return [s for s in seasons if s.episodes], title
