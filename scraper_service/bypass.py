@@ -1,12 +1,13 @@
 """
 Bypass and direct link resolution module for Downloadwella and file hosters.
-Provides high-speed HTTP form emulation with a Selenium headless browser fallback.
+Primary path is pure HTTP form emulation.
+Selenium is opt-in only (USE_SELENIUM=true) to prevent OOM on Render.
 """
 
+import os
 import re
-import time
 import logging
-from typing import Tuple, Optional, Dict, Any
+from typing import Tuple, Optional, Dict
 import httpx
 from bs4 import BeautifulSoup
 
@@ -14,8 +15,14 @@ from scraper_service.config import DEFAULT_USER_AGENT, SCRAPER_HTTP_TIMEOUT
 
 logger = logging.getLogger("scraper_service.bypass")
 
+# Selenium is disabled by default on production (Render). Set USE_SELENIUM=true only
+# on machines with enough RAM and a working Chrome binary.
+USE_SELENIUM: bool = os.getenv("USE_SELENIUM", "false").lower() == "true"
 
-async def resolve_downloadwella_http(url: str, timeout: float = SCRAPER_HTTP_TIMEOUT) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+
+async def resolve_downloadwella_http(
+    url: str, timeout: float = SCRAPER_HTTP_TIMEOUT
+) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """
     Fast-path async HTTP bypass for Downloadwella.
     Emulates the XFS 'op=download2' form submission.
@@ -30,14 +37,20 @@ async def resolve_downloadwella_http(url: str, timeout: float = SCRAPER_HTTP_TIM
     }
 
     try:
-        async with httpx.AsyncClient(headers=headers, timeout=httpx.Timeout(timeout, connect=5.0), follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            headers=headers,
+            timeout=httpx.Timeout(timeout, connect=5.0),
+            follow_redirects=True,
+        ) as client:
             # Step 1: Fetch initial page to extract form hidden fields & file ID
             resp = await client.get(url)
             if resp.status_code != 200:
                 return None, None, None, f"Failed to load download page: HTTP {resp.status_code}"
 
             soup = BeautifulSoup(resp.text, "html.parser")
-            form = soup.find("form", attrs={"name": "F1"}) or soup.find("form", action=lambda a: a is None or a == "")
+            form = soup.find("form", attrs={"name": "F1"}) or soup.find(
+                "form", action=lambda a: a is None or a == ""
+            )
             if not form:
                 # If form is missing, maybe it's already a direct link or different structure
                 direct_candidate = soup.find("a", href=lambda h: h and "/d/" in h)
@@ -55,7 +68,7 @@ async def resolve_downloadwella_http(url: str, timeout: float = SCRAPER_HTTP_TIM
             # Ensure required XFS fields exist
             if "op" not in post_data:
                 post_data["op"] = "download2"
-            
+
             # Extract file ID from URL if missing
             if not post_data.get("id"):
                 id_match = re.search(r"downloadwella\.com/([a-zA-Z0-9]+)", url)
@@ -65,7 +78,9 @@ async def resolve_downloadwella_http(url: str, timeout: float = SCRAPER_HTTP_TIM
             # Step 2: Post the form to trigger direct link generation
             post_url = form.get("action") or url
             if not post_url.startswith("http"):
-                post_url = "https://downloadwella.com" + (post_url if post_url.startswith("/") else f"/{post_url}")
+                post_url = "https://downloadwella.com" + (
+                    post_url if post_url.startswith("/") else f"/{post_url}"
+                )
 
             step2_resp = await client.post(post_url, data=post_data, headers=headers)
             if step2_resp.status_code != 200:
@@ -77,7 +92,6 @@ async def resolve_downloadwella_http(url: str, timeout: float = SCRAPER_HTTP_TIM
             # Downloadwella direct links use pattern https://{server}.downloadwella.com/d/{token}/{filename}
             direct_link_tag = step2_soup.find("a", href=lambda h: h and "/d/" in h)
             if not direct_link_tag:
-                # Look for span#direct_link or button
                 span = step2_soup.find(id="direct_link")
                 if span:
                     parent_a = span.find_parent("a")
@@ -98,7 +112,9 @@ async def resolve_downloadwella_http(url: str, timeout: float = SCRAPER_HTTP_TIM
                 fn_match = re.search(r"Filename:\s*([^\s\n\r]+)", slot_text)
                 if fn_match:
                     file_name = fn_match.group(1).strip()
-                size_match = re.search(r"Size:\s*([\d\.]+\s*(?:MB|GB|KB))", slot_text, re.IGNORECASE)
+                size_match = re.search(
+                    r"Size:\s*([\d\.]+\s*(?:MB|GB|KB))", slot_text, re.IGNORECASE
+                )
                 if size_match:
                     file_size = size_match.group(1).strip()
 
@@ -111,10 +127,14 @@ async def resolve_downloadwella_http(url: str, timeout: float = SCRAPER_HTTP_TIM
         return None, None, None, f"HTTP resolver error: {str(exc)}"
 
 
-def resolve_downloadwella_selenium(url: str, timeout: int = 15) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+def resolve_downloadwella_selenium(
+    url: str, timeout: int = 15
+) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """
     Selenium headless browser bypass for Downloadwella when JavaScript execution
     or Cloudflare challenges are required.
+
+    Only called when USE_SELENIUM=true. Do not enable on low-memory hosts (Render free/starter).
     Returns: (direct_url, file_name, file_size, error_message)
     """
     try:
@@ -139,13 +159,11 @@ def resolve_downloadwella_selenium(url: str, timeout: int = 15) -> Tuple[Optiona
         driver.set_page_load_timeout(timeout)
         driver.get(url)
 
-        # Locate and click download button
         btn = WebDriverWait(driver, 8).until(
             EC.element_to_be_clickable((By.ID, "downloadbtn"))
         )
         btn.click()
 
-        # Wait for direct link on step 2 page
         link_elem = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, "//a[contains(@href, '/d/')]"))
         )
@@ -164,22 +182,52 @@ def resolve_downloadwella_selenium(url: str, timeout: int = 15) -> Tuple[Optiona
                 pass
 
 
-async def resolve_download_link(url: str, force_selenium: bool = False) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+async def resolve_download_link(
+    url: str, force_selenium: bool = False
+) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """
     Main bypass entry point.
-    Tries fast HTTP bypass first; if it fails or if force_selenium is requested,
-    attempts Selenium headless bypass.
+
+    1. Always try the pure HTTP form-post path first.
+    2. Selenium is used only when USE_SELENIUM=true (or force_selenium=True and env allows).
+       Default is off so Render free/starter instances cannot OOM from Chrome.
     """
-    if not force_selenium:
-        direct_url, file_name, file_size, err = await resolve_downloadwella_http(url)
+    http_err: Optional[str] = None
+
+    if not force_selenium or not USE_SELENIUM:
+        direct_url, file_name, file_size, http_err = await resolve_downloadwella_http(url)
         if direct_url:
             return direct_url, file_name, file_size, None
-        logger.info("Fast HTTP bypass failed (%s), attempting Selenium fallback...", err)
 
-    # Fallback to Selenium
+    if not USE_SELENIUM:
+        logger.warning(
+            "HTTP bypass failed (%s) and Selenium is disabled (USE_SELENIUM=false)",
+            http_err or "force_selenium skipped",
+        )
+        return (
+            None,
+            None,
+            None,
+            f"HTTP bypass failed and Selenium is disabled: {http_err or 'unknown'}",
+        )
+
+    # Explicitly enabled — run Selenium in a thread
+    if http_err:
+        logger.info("Fast HTTP bypass failed (%s), attempting Selenium fallback...", http_err)
+    else:
+        logger.info("force_selenium=True and USE_SELENIUM=true; using Selenium")
+
     import asyncio
-    direct_url, file_name, file_size, sel_err = await asyncio.to_thread(resolve_downloadwella_selenium, url)
+
+    direct_url, file_name, file_size, sel_err = await asyncio.to_thread(
+        resolve_downloadwella_selenium, url
+    )
     if direct_url:
         return direct_url, file_name, file_size, None
 
-    return None, None, None, f"Both bypass methods failed: HTTP err=({err if not force_selenium else 'skipped'}), Selenium err=({sel_err})"
+    return (
+        None,
+        None,
+        None,
+        f"Both bypass methods failed: HTTP err=({http_err or 'skipped'}), Selenium err=({sel_err})",
+    )
