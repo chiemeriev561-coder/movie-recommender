@@ -74,6 +74,24 @@ def _infer_quality(url: str, text: str = "") -> str:
     return "Standard HD"
 
 
+def _episode_label_from_context(anchor, href: str) -> str:
+    """Best-effort episode name from nearby DOM text or URL filename."""
+    p = anchor
+    for _ in range(6):
+        p = getattr(p, "parent", None)
+        if p is None or not hasattr(p, "get_text"):
+            break
+        pt = p.get_text(" ", strip=True)
+        m = re.search(r"(Episode\s+\d+(?:\s*\([^)]+\))?)", pt, re.IGNORECASE)
+        if m:
+            return m.group(1)
+    m = re.search(r"[Ss](\d+)[Ee](\d+)", href)
+    if m:
+        return f"S{int(m.group(1)):02d}E{int(m.group(2)):02d}"
+    text = anchor.get_text(" ", strip=True)
+    return text if text else "Download Episode"
+
+
 class ThenkiriClient:
     """Async scraper client for Thenkiri."""
 
@@ -254,8 +272,6 @@ class ThenkiriClient:
         Extract all season and episode links from a Thenkiri TV-series page.
 
         Pure httpx + BeautifulSoup only. No Selenium/Chrome.
-        This keeps memory under ~20-40 MB instead of 300-500+ MB and avoids
-        OOM kills on Render free/starter instances.
         """
         if not url:
             return [], None, "TV-series URL cannot be empty"
@@ -264,7 +280,6 @@ class ThenkiriClient:
         client = await self.get_client()
 
         try:
-            # Extra Referer makes the request look like a normal site navigation
             resp = await client.get(url, headers={**HEADERS, "Referer": THENKIRI_BASE_URL + "/"})
             if resp.status_code != 200:
                 return [], None, f"Target page returned HTTP {resp.status_code}"
@@ -283,7 +298,10 @@ class ThenkiriClient:
     def _parse_tv_page(self, soup: BeautifulSoup, page_url: str) -> Tuple[List[TVSeasonItem], Optional[str]]:
         """
         Parse TV markup into season groups and episode links.
-        Works on the static HTML returned by the server (no JS rendering).
+
+        Thenkiri multi-season pages put every season in the static HTML under
+        h2 headings like "Season 1", "Season 2". Download buttons are Elementor
+        links whose visible text is often just "Download Episode".
         """
         title: Optional[str] = None
         h1 = soup.find("h1", class_=lambda c: c and "entry-title" in c)
@@ -296,32 +314,26 @@ class ThenkiriClient:
         current: Optional[TVSeasonItem] = None
         seen_urls: set = set()
 
-        for element in soup.find_all(["h2", "h3", "h4", "strong", "p", "a"]):
+        # Only walk headers + anchors so "Download Episode" is never treated as a header
+        for element in soup.find_all(["h2", "h3", "h4", "a"]):
             text = element.get_text(" ", strip=True)
-            text_upper = text.upper()
-            text_lower = text.lower()
+            text_upper = text.upper().strip()
 
-            # Season / episode header
-            if ("SEASON" in text_upper or "EPISODE" in text_upper) and len(text) < 80:
-                # Prefer real season headers; avoid creating a new group for every episode title
-                if "SEASON" in text_upper:
+            if element.name in ("h2", "h3", "h4"):
+                # Real season heading only (avoid comments / long blurbs)
+                if re.match(r"^SEASON\s*\d+", text_upper) and len(text) < 40:
                     if current and current.season_name == text:
                         continue
                     current = TVSeasonItem(season_name=text, episodes=[])
                     seasons.append(current)
                 continue
 
-            # Download link belonging to the current season
-            if element.name != "a" or current is None:
+            # Anchors: attach downloadwella links to the current season
+            if current is None:
                 continue
 
             href = (element.get("href") or "").strip()
-            if not href:
-                continue
-            if "downloadwella.com" not in href.lower():
-                continue
-            # Require some signal that this is an actual download link
-            if "download" not in text_lower and ".mkv" not in href.lower() and "episode" not in text_lower:
+            if not href or "downloadwella.com" not in href.lower():
                 continue
 
             absolute_url = urllib.parse.urljoin(page_url, href)
@@ -329,10 +341,10 @@ class ThenkiriClient:
                 continue
             seen_urls.add(absolute_url)
 
-            ep_name = text if text and ("episode" in text_lower or "download" in text_lower) else "Download Episode"
+            ep_name = _episode_label_from_context(element, href)
             current.episodes.append(TVEpisodeItem(name=ep_name, download_url=absolute_url))
 
-        # Fallback: page has download links but no clear season headers
+        # Fallback: links exist but no Season N headers
         if not seasons or all(not s.episodes for s in seasons):
             all_episodes: List[TVEpisodeItem] = []
             for a in soup.find_all("a", href=True):
@@ -343,9 +355,12 @@ class ThenkiriClient:
                 if absolute_url in seen_urls:
                     continue
                 seen_urls.add(absolute_url)
-                name = a.get_text(" ", strip=True) or "Download Episode"
-                all_episodes.append(TVEpisodeItem(name=name, download_url=absolute_url))
-
+                all_episodes.append(
+                    TVEpisodeItem(
+                        name=_episode_label_from_context(a, href),
+                        download_url=absolute_url,
+                    )
+                )
             if all_episodes:
                 seasons = [TVSeasonItem(season_name="All Episodes", episodes=all_episodes)]
 
