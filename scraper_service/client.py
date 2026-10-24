@@ -15,7 +15,8 @@ from bs4 import BeautifulSoup
 from scraper_service.config import (
     THENKIRI_BASE_URL,
     DEFAULT_USER_AGENT,
-    SCRAPER_HTTP_TIMEOUT
+    SCRAPER_HTTP_TIMEOUT,
+    is_safe_external_url,
 )
 from scraper_service.models import (
     SearchResultItem,
@@ -224,6 +225,8 @@ class ThenkiriClient:
     ) -> Tuple[List[DownloadOptionItem], Optional[str], Optional[str]]:
         if not movie_url:
             return [], None, "Movie URL cannot be empty"
+        if not is_safe_external_url(movie_url, {"thenkiri.com"}):
+            return [], None, "Movie URL must be an HTTPS Thenkiri URL"
 
         client = await self.get_client()
 
@@ -303,6 +306,8 @@ class ThenkiriClient:
         """
         if not url:
             return [], None, "TV-series URL cannot be empty"
+        if not is_safe_external_url(url, {"thenkiri.com"}):
+            return [], None, "TV URL must be an HTTPS Thenkiri URL"
 
         logger.info("Fetching TV download options (pure HTTP): %s", url)
         client = await self.get_client()

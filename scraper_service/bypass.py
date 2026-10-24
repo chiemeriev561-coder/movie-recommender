@@ -9,7 +9,7 @@ from typing import Tuple, Optional, Dict
 import httpx
 from bs4 import BeautifulSoup
 
-from scraper_service.config import DEFAULT_USER_AGENT, SCRAPER_HTTP_TIMEOUT
+from scraper_service.config import DEFAULT_USER_AGENT, SCRAPER_HTTP_TIMEOUT, is_safe_external_url
 
 logger = logging.getLogger("scraper_service.bypass")
 
@@ -22,6 +22,8 @@ async def resolve_downloadwella_http(
     Emulates the XFS 'op=download2' form submission.
     Returns: (direct_url, file_name, file_size, error_message)
     """
+    if not is_safe_external_url(url, {"downloadwella.com"}):
+        return None, None, None, "URL must be an HTTPS Downloadwella URL"
     headers = {
         "User-Agent": DEFAULT_USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -69,6 +71,8 @@ async def resolve_downloadwella_http(
                 post_url = "https://downloadwella.com" + (
                     post_url if post_url.startswith("/") else f"/{post_url}"
                 )
+            if not is_safe_external_url(post_url, {"downloadwella.com"}):
+                return None, None, None, "Download form action is not an approved URL"
 
             step2_resp = await client.post(post_url, data=post_data, headers=headers)
             if step2_resp.status_code != 200:

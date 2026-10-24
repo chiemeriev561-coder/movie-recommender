@@ -17,6 +17,7 @@ import (
 func main() {
 	// Upstream FastAPI on Render or local
 	upstream := getEnv("UPSTREAM_URL", "http://localhost:8000")
+	gatewaySecret := getEnv("GATEWAY_SHARED_SECRET", "")
 
 	// Connect to Redis
 	rdb := redis.NewClient(&redis.Options{
@@ -43,7 +44,7 @@ func main() {
 	r.Use(middleware.RateLimit(rdb, 30, 60))
 
 	// Proxy & direct handler
-	h := proxy.NewHandler(upstream, rdb)
+	h := proxy.NewHandler(upstream, rdb, gatewaySecret)
 
 	// --- Direct/Local endpoints (no upstream/Python hit) ---
 	r.Get("/ping", h.PingHandler)
@@ -51,10 +52,11 @@ func main() {
 	r.Get("/", h.RootHandler)
 	r.Head("/", h.RootHandler)
 
-	// Favorites (GET is local from memory cache, POST/DELETE are proxied and synced)
-	r.Get("/api/favorites", h.GetFavoritesHandler)
-	r.Post("/api/favorites", h.AddFavoriteHandler)
-	r.Delete("/api/favorites", h.RemoveFavoriteHandler)
+	// Favorites are owned by FastAPI and scoped there. Keeping them in the Go
+	// process/global favorites.json caused users to see one another's data.
+	r.Get("/api/favorites", h.Plain)
+	r.Post("/api/favorites", h.Plain)
+	r.Delete("/api/favorites", h.Plain)
 
 	// --- Cached proxy endpoints (TMDB responses are expensive, cache them) ---
 	r.Get("/api/movies/trending", h.Cached)

@@ -2,11 +2,11 @@ package proxy
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -28,13 +28,15 @@ type Handler struct {
 	upstream string
 	rdb      *redis.Client
 	client   *http.Client
+	secret   string
 }
 
 // NewHandler creates a new proxy handler
-func NewHandler(upstream string, rdb *redis.Client) *Handler {
+func NewHandler(upstream string, rdb *redis.Client, secret string) *Handler {
 	return &Handler{
 		upstream: strings.TrimRight(upstream, "/"),
 		rdb:      rdb,
+		secret:   secret,
 		client: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -52,7 +54,7 @@ func (h *Handler) Cached(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) forward(w http.ResponseWriter, r *http.Request, useCache bool) {
-	ctx := context.Background()
+	ctx := r.Context()
 	cacheKey := buildCacheKey(r)
 
 	if useCache {
@@ -81,7 +83,15 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, useCache bool)
 	}
 
 	copyHeaders(outReq.Header, r.Header)
-	outReq.Header.Set("X-Forwarded-For", r.RemoteAddr)
+	delete(outReq.Header, "X-Real-Client-Ip")
+	delete(outReq.Header, "X-Forwarded-For")
+	outReq.Header.Set("X-Real-Client-IP", remoteHost(r.RemoteAddr))
+	outReq.Header.Set("X-Forwarded-For", remoteHost(r.RemoteAddr))
+	if h.secret != "" {
+		outReq.Header.Set("X-Gateway-Secret", h.secret)
+	} else {
+		delete(outReq.Header, "X-Gateway-Secret")
+	}
 	outReq.Header.Set("X-Forwarded-Host", r.Host)
 
 	resp, err := h.client.Do(outReq)
@@ -115,6 +125,13 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, useCache bool)
 	w.Header().Set("X-Cache", "MISS")
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, bytes.NewReader(body))
+}
+
+func remoteHost(remoteAddr string) string {
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return host
+	}
+	return remoteAddr
 }
 
 // buildCacheKey creates a stable Redis key from path + sorted query params
@@ -165,7 +182,7 @@ func (h *Handler) PingHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RootHandler(w http.ResponseWriter, r *http.Request) {
 	recommender.LoadFavorites(recommender.FavoritesFile)
 	favs := recommender.Favorites
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -181,7 +198,7 @@ func (h *Handler) RootHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetFavoritesHandler(w http.ResponseWriter, r *http.Request) {
 	recommender.LoadFavorites(recommender.FavoritesFile)
 	favMovies := recommender.GetFavoriteMovies()
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(favMovies)
@@ -229,7 +246,7 @@ func (h *Handler) AddFavoriteHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad upstream URL", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Create outgoing request
 	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, target.String(), bytes.NewReader(bodyBytes))
 	if err != nil {
@@ -293,7 +310,7 @@ func (h *Handler) RemoveFavoriteHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "bad upstream URL", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Create outgoing request
 	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, target.String(), bytes.NewReader(bodyBytes))
 	if err != nil {

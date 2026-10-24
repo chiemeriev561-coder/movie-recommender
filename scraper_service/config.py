@@ -3,6 +3,8 @@ Configuration settings for Scraper Service.
 """
 
 import os
+import ipaddress
+from urllib.parse import urlparse
 from typing import List
 from dotenv import load_dotenv
 
@@ -33,3 +35,20 @@ ALLOWED_ORIGINS: List[str] = [
     for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
     if origin.strip()
 ]
+
+
+def is_safe_external_url(value: str, allowed_hosts: set[str]) -> bool:
+    """Allow only HTTPS URLs on explicitly approved public hostnames."""
+    try:
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if parsed.scheme != "https" or not host or parsed.username or parsed.password:
+            return False
+        try:
+            if ipaddress.ip_address(host).is_private or ipaddress.ip_address(host).is_loopback:
+                return False
+        except ValueError:
+            pass
+        return any(host == allowed or host.endswith("." + allowed) for allowed in allowed_hosts)
+    except ValueError:
+        return False

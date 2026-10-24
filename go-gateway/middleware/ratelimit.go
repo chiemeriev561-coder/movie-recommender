@@ -76,12 +76,8 @@ func RateLimit(rdb *redis.Client, maxRequests int, windowSecs int64) func(http.H
 
 // getIP extracts the real client IP, respecting proxy headers
 func getIP(r *http.Request) string {
-	// Check X-Forwarded-For first (set by Render, Nginx, etc)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return xff
-	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
+	// Do not trust client-controlled forwarding headers. If the gateway is
+	// deployed behind a trusted load balancer, normalize its address before
+	// this middleware or add an explicit trusted-proxy implementation.
 	return r.RemoteAddr
 }

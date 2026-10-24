@@ -109,6 +109,7 @@ TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 # Scraper Microservice Configuration (Port 8001)
 SCRAPER_SERVICE_URL = os.getenv("SCRAPER_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/")
 SCRAPER_SERVICE_TIMEOUT = float(os.getenv("SCRAPER_SERVICE_TIMEOUT", "6.0"))
+GATEWAY_SHARED_SECRET = os.getenv("GATEWAY_SHARED_SECRET", "")
 
 # TMDB Genre ID to Name Mapping
 TMDB_GENRES = {
@@ -200,6 +201,21 @@ async def prewarm_popular_searches() -> None:
 def get_user_genres_set(user_ip: str) -> Set[str]:
     """Get unique genres searched/filtered by a specific user IP."""
     return cache.get(f"genres_{user_ip}", set())
+
+
+def get_user_identity(request: Request) -> str:
+    """Return the identity used for per-user state.
+
+    The Go gateway replaces this header with the actual peer address. Direct
+    API access falls back to Starlette's peer address.
+    """
+    forwarded_identity = request.headers.get("x-real-client-ip", "").strip()
+    gateway_secret = request.headers.get("x-gateway-secret", "")
+    if (GATEWAY_SHARED_SECRET and gateway_secret == GATEWAY_SHARED_SECRET
+            and forwarded_identity
+            and all(c not in forwarded_identity for c in "\r\n, ")):
+        return forwarded_identity
+    return request.client.host if request.client else "unknown"
 
 def add_user_genre(user_ip: str, genre: str) -> None:
     """Track a unique genre for a specific user IP."""
@@ -1059,13 +1075,13 @@ async def ping():
 @limiter.limit("60/minute")
 async def root(request: Request):
     """API root endpoint with basic information."""
-    refresh_favorites_state()
+    user_ip = get_user_identity(request)
     return {
         "message": "Movie Recommender API",
         "version": "1.0.0",
         "docs": "/docs",
         "redoc": "/redoc",
-        "favorites_count": len(get_favorite_entries())
+        "favorites_count": len(get_user_favorite_keys(user_ip))
     }
 
 @app.get("/sitemap.xml")
@@ -1425,7 +1441,7 @@ def get_tv_features(series: Dict[str, Any]) -> Dict[str, Any]:
 @limiter.limit("20/minute")
 async def get_trending_movies(request: Request, genre: Optional[str] = Query(None)):
     """Fetch trending movies. Returns 10 by default, or filtered results, with caching"""
-    user_ip = request.client.host if request.client else "unknown"
+    user_ip = get_user_identity(request)
     
     if genre:
         add_user_genre(user_ip, genre)
@@ -1480,7 +1496,7 @@ async def search_movies(
     - Locked: Searches only live TMDB trending data (Name & Genre).
     - Unlocked: Searches BOTH live TMDB and Classic Vault (CSV).
     """
-    user_ip = request.client.host if request.client else "unknown"
+    user_ip = get_user_identity(request)
     
     if genre:
         add_user_genre(user_ip, genre)
@@ -1534,7 +1550,7 @@ async def advanced_search(
     - /api/movies/advanced-search?cast=Tom+Hanks&director=Steven+Spielberg
     - /api/movies/advanced-search?genres=Comedy&sort_by=revenue.desc
     """
-    user_ip = request.client.host if request.client else "unknown"
+    user_ip = get_user_identity(request)
     
     # FastAPI Query objects are exposed when this handler is called directly
     # (the smart-search endpoint does that), so unwrap their defaults first.
@@ -2279,8 +2295,7 @@ async def get_categories(request: Request):
 @limiter.limit("20/minute")
 async def get_favorites(request: Request):
     try:
-        refresh_favorites_state()
-        fav_movies = get_favorite_movies()
+        _, fav_movies = build_user_favorite_movies(get_user_identity(request))
         return [MovieResponse(**movie) for movie in fav_movies]
     except Exception as e:
         logger.exception("Error getting favorites")
@@ -2290,7 +2305,7 @@ async def get_favorites(request: Request):
 @limiter.limit("5/minute")
 async def add_to_favorites(request: Request, favorite: FavoriteRequest):
     try:
-        user_ip = request.client.host if request.client else "unknown"
+        user_ip = get_user_identity(request)
         name, year = favorite.name, favorite.year
 
         # Always attach this favorite to the user's personalization profile,
@@ -2298,12 +2313,7 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
         add_user_favorite_key(user_ip, name, year)
         update_user_preferences_from_favorites(user_ip)
 
-        # The global file contains local-dataset movies only. Its failure must
-        # not prevent personalization from remembering the user's key.
-        success = add_favorite(name, year, FAVORITES_FILE)
-        if success:
-            return {"message": "Added to favorites"}
-        return {"message": "Favorite registered for recommendations"}
+        return {"message": "Added to favorites"}
     except HTTPException:
         raise
     except Exception as e:
@@ -2314,19 +2324,21 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
 @limiter.limit("5/minute")
 async def remove_from_favorites(
     request: Request,
-    name: str = Query(...),
-    year: int = Query(...),
+    name: Optional[str] = Query(None),
+    year: Optional[int] = Query(None),
+    favorite: Optional[FavoriteRequest] = None,
 ):
     try:
-        user_ip = request.client.host if request.client else "unknown"
+        if favorite is not None:
+            name, year = favorite.name, favorite.year
+        if name is None or year is None:
+            raise HTTPException(status_code=422, detail="name and year are required")
+        user_ip = get_user_identity(request)
 
         # Remove from the user's profile regardless of global-file state.
         remove_user_favorite_key(user_ip, name, year)
         update_user_preferences_from_favorites(user_ip)
 
-        # Global favorites are best-effort; the IP profile is authoritative
-        # for personalization and has already been updated.
-        remove_favorite(name, year, FAVORITES_FILE)
         return {"message": "Removed from favorites"}
     except HTTPException:
         raise
@@ -2337,11 +2349,11 @@ async def remove_from_favorites(
 @app.get("/api/health")
 @limiter.limit("60/minute")
 async def health_check(request: Request):
-    refresh_favorites_state()
+    user_ip = get_user_identity(request)
     return {
         "status": "healthy",
         "movies_count": None,
-        "favorites_count": len(get_favorite_entries()),
+        "favorites_count": len(get_user_favorite_keys(user_ip)),
         "csv_integration": _HAS_CSV_STATS,
         "tmdb_integration": bool(TMDB_API_KEY)
     }
@@ -2350,10 +2362,10 @@ async def health_check(request: Request):
 @limiter.limit("20/minute")
 async def get_statistics(request: Request):
     try:
-        refresh_favorites_state()
+        user_ip = get_user_identity(request)
         stats = {
             "total_movies": None,
-            "favorites_count": len(get_favorite_entries()),
+            "favorites_count": len(get_user_favorite_keys(user_ip)),
             "available_genres": len(TMDB_GENRES),
             "available_categories": 0
         }
@@ -2676,13 +2688,12 @@ async def personalized_content_recommendations(
     """
     Personalized content-based recommendations using the user's favorites and the local dataset.
     """
-    user_ip = request.client.host if request.client else "unknown"
+    user_ip = get_user_identity(request)
     try:
         import movie_recommender as mr
 
-        # Load favorites from disk and map to full movie dicts (local favorites only)
-        refresh_favorites_state()
-        favorite_movies = get_favorite_movies()
+        # Load this user's favorites from the disk-backed per-user cache.
+        _, favorite_movies = build_user_favorite_movies(user_ip)
         if not favorite_movies:
             # If no local favorites exist, fall back to TMDB-based personalized recommendations
             raise HTTPException(status_code=404, detail="No favorites found for user; add favorites first")
@@ -2740,7 +2751,7 @@ async def get_personalized_recommendations(
     4. Score the pool against user's favorites using content-based filtering
     5. Return top results re-ranked by content similarity
     """
-    user_ip = request.client.host if request.client else "unknown"
+    user_ip = get_user_identity(request)
     
     try:
         if not TMDB_API_KEY:
@@ -2928,7 +2939,7 @@ async def get_hybrid_recommendations_endpoint(
     - /api/recommendations/hybrid?genres=Action,Sci-Fi&year_min=2010
     - /api/recommendations/hybrid?tmdb_weight=0.3&content_weight=0.7
     """
-    user_ip = request.client.host if request.client else "unknown"
+    user_ip = get_user_identity(request)
     
     if not TMDB_API_KEY:
         raise HTTPException(status_code=503, detail="TMDB integration is not configured")
@@ -3037,7 +3048,7 @@ async def get_discovery_recommendations(
     Get "Discovery" recommendations - movies outside usual preferences but highly rated.
     Surprises the user with hidden gems they might not have found otherwise.
     """
-    user_ip = request.client.host if request.client else "unknown"
+    user_ip = get_user_identity(request)
     
     try:
         if not TMDB_API_KEY:
