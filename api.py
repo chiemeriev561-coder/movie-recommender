@@ -31,6 +31,9 @@ from starlette.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from dotenv import load_dotenv
 
+from scraper_service.client import ThenkiriClient
+from scraper_service.bypass import resolve_download_link
+
 import diskcache
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -106,9 +109,9 @@ HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
-# Scraper Microservice Configuration (Port 8001)
-SCRAPER_SERVICE_URL = os.getenv("SCRAPER_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/")
-SCRAPER_SERVICE_TIMEOUT = float(os.getenv("SCRAPER_SERVICE_TIMEOUT", "6.0"))
+# Thenkiri is embedded in this process.  Keeping one client lets the API reuse
+# connections to the upstream site without requiring a second web service.
+thenkiri_client = ThenkiriClient()
 
 # TMDB Genre ID to Name Mapping
 TMDB_GENRES = {
@@ -294,6 +297,7 @@ async def lifespan(app: FastAPI):
         task.cancel()
     if _background_tasks:
         await asyncio.gather(*_background_tasks, return_exceptions=True)
+    await thenkiri_client.close()
     logger.info("Shutting down Movie Recommender API")
 
 # Initialize FastAPI app
@@ -1935,9 +1939,7 @@ async def get_movie_stream_url(request: Request, movie_id: str):
 @limiter.limit("30/minute")
 async def get_movie_downloads(request: Request, movie_id: str, title: Optional[str] = Query(None)):
     """
-    Returns available high-speed download options for a movie from the isolated scraper service.
-    Decoupled and circuit-broken: If the scraper service on port 8001 is offline or times out,
-    returns available=False gracefully without impacting the primary API or recommendations.
+    Returns available high-speed download options for a movie from Thenkiri.
     """
     clean_id = str(movie_id).strip()
     target_title = title.strip() if title else None
@@ -1971,81 +1973,42 @@ async def get_movie_downloads(request: Request, movie_id: str, title: Optional[s
     if cached_val:
         return MovieDownloadsResponse(**cached_val)
 
-    # Communicate with Scraper Service on Port 8001
+    # Search Thenkiri and resolve the matching movie page in-process.
     try:
-        async with httpx.AsyncClient(timeout=SCRAPER_SERVICE_TIMEOUT) as scraper_client:
-            # 1. Search for movie
-            search_resp = await scraper_client.post(
-                f"{SCRAPER_SERVICE_URL}/api/v1/scraper/search",
-                json={"query": target_title, "limit": 1}
-            )
-            if search_resp.status_code != 200:
-                return MovieDownloadsResponse(
-                    movie_id=clean_id,
-                    title=target_title,
-                    available=False,
-                    options=[],
-                    status="scraper_error",
-                    error=f"Scraper search returned status {search_resp.status_code}"
-                )
-
-            search_data = search_resp.json()
-            results = search_data.get("results", [])
-            if not results:
-                res = MovieDownloadsResponse(
-                    movie_id=clean_id,
-                    title=target_title,
-                    available=False,
-                    options=[],
-                    status="not_found",
-                    error="No download sources found for movie title"
-                )
-                cache.set(cache_key, res.model_dump(), expire=1800)
-                return res
-
-            first_match = results[0]
-            movie_page_url = first_match.get("url")
-
-            # 2. Get download options
-            options_resp = await scraper_client.post(
-                f"{SCRAPER_SERVICE_URL}/api/v1/scraper/options",
-                json={"url": movie_page_url, "title": target_title}
-            )
-            if options_resp.status_code != 200:
-                return MovieDownloadsResponse(
-                    movie_id=clean_id,
-                    title=target_title,
-                    available=False,
-                    options=[],
-                    status="scraper_error",
-                    error=f"Scraper options returned status {options_resp.status_code}"
-                )
-
-            options_data = options_resp.json()
-            options = [
-                MovieDownloadOption(
-                    quality=opt.get("quality", "HD"),
-                    download_url=opt.get("download_url"),
-                    file_size=opt.get("file_size"),
-                    hoster=opt.get("hoster", "downloadwella"),
-                    direct_url=opt.get("direct_url")
-                )
-                for opt in options_data.get("options", [])
-            ]
-
-            res = MovieDownloadsResponse(
-                movie_id=clean_id,
-                title=options_data.get("title") or target_title,
-                available=len(options) > 0,
-                options=options,
-                source_url=movie_page_url,
-                status="ok"
-            )
-            cache.set(cache_key, res.model_dump(), expire=3600)
+        results, search_error = await thenkiri_client.search_movies(query=target_title, limit=1)
+        if search_error:
+            return MovieDownloadsResponse(movie_id=clean_id, title=target_title, available=False,
+                                          options=[], status="scraper_error", error=search_error)
+        if not results:
+            res = MovieDownloadsResponse(movie_id=clean_id, title=target_title, available=False,
+                                         options=[], status="not_found",
+                                         error="No download sources found for movie title")
+            cache.set(cache_key, res.model_dump(), expire=1800)
             return res
 
-    except (httpx.RequestError, httpx.TimeoutException) as exc:
-        logger.warning("Scraper microservice unavailable or timed out for movie_id=%s: %s", clean_id, exc)
+        movie_page_url = results[0].url
+        raw_options, found_title, options_error = await thenkiri_client.get_download_options(
+            movie_url=movie_page_url, title=target_title
+        )
+        if options_error:
+            return MovieDownloadsResponse(movie_id=clean_id, title=target_title, available=False,
+                                          options=[], status="scraper_error", error=options_error)
+
+        options = [MovieDownloadOption(
+            quality=opt.quality,
+            download_url=opt.download_url,
+            file_size=opt.file_size,
+            hoster=opt.hoster or "downloadwella",
+            direct_url=opt.direct_url,
+        ) for opt in raw_options]
+        res = MovieDownloadsResponse(movie_id=clean_id, title=found_title or target_title,
+                                     available=bool(options), options=options,
+                                     source_url=movie_page_url, status="ok")
+        cache.set(cache_key, res.model_dump(), expire=3600)
+        return res
+
+    except Exception as exc:
+        logger.warning("Thenkiri scraper unavailable or failed for movie_id=%s: %s", clean_id, exc)
         return MovieDownloadsResponse(
             movie_id=clean_id,
             title=target_title,
@@ -2080,57 +2043,31 @@ async def get_tv_download_options(
         return TVDownloadResponse(**cached)
 
     try:
-        async with httpx.AsyncClient(timeout=SCRAPER_SERVICE_TIMEOUT) as scraper_client:
-            search_resp = await scraper_client.post(
-                f"{SCRAPER_SERVICE_URL}/api/v1/scraper/search",
-                json={"query": target_title, "limit": 10}
-            )
-            if search_resp.status_code != 200:
-                return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
+        results, search_error = await thenkiri_client.search_movies(query=target_title, limit=10)
+        if search_error or not results:
+            return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
 
-            results = search_resp.json().get("results", [])
-            if not results:
-                return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
+        # Prefer a result explicitly labelled as a TV series, falling back to
+        # the first result when the provider omits that label.
+        series_result = next(
+            (result for result in results
+             if "tv series" in result.title.lower() or "tv-series" in result.url.lower()),
+            results[0],
+        )
+        seasons, found_title, options_error = await thenkiri_client.get_tv_options(series_result.url)
+        if options_error:
+            return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
 
-            # Search results can contain both a movie and a series with the
-            # same title. Prefer anything explicitly marked as a TV series,
-            # regardless of the exact title format.
-            series_url = None
-            for result in results:
-                result_title = str(result.get("title") or "").lower()
-                result_url = str(result.get("url") or "")
-                if "tv series" in result_title or "tv-series" in result_url.lower():
-                    series_url = result_url
-                    break
-
-            # If no result is labelled, the first result is still preferable
-            # to returning no download options at all.
-            if not series_url and results:
-                series_url = str(results[0].get("url") or "")
-            if not series_url:
-                return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
-
-            options_resp = await scraper_client.post(
-                f"{SCRAPER_SERVICE_URL}/api/v1/scraper/tv-options",
-                json={"url": series_url}
-            )
-            if options_resp.status_code != 200:
-                return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
-
-            options_data = options_resp.json()
-            seasons = options_data.get("seasons", [])
-            response = TVDownloadResponse(
-                series_id=series_id,
-                series_title=options_data.get("title") or target_title,
-                seasons=seasons,
-                is_available=bool(seasons)
-            )
-            cache.set(cache_key, response.model_dump(), expire=1800)
-            return response
-    except (httpx.RequestError, httpx.TimeoutException):
-        return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
+        response = TVDownloadResponse(
+            series_id=series_id,
+            series_title=found_title or target_title,
+            seasons=[season.model_dump() for season in seasons],
+            is_available=bool(seasons),
+        )
+        cache.set(cache_key, response.model_dump(), expire=1800)
+        return response
     except Exception as exc:
-        logger.exception("Unexpected error communicating with scraper service for series_id=%s: %s", series_id, exc)
+        logger.warning("Thenkiri TV scraper failed for series_id=%s: %s", series_id, exc)
         return TVDownloadResponse(series_id=series_id, series_title=target_title, seasons=[], is_available=False)
 
 
@@ -2139,38 +2076,20 @@ async def get_tv_download_options(
 async def resolve_movie_download(request: Request, body: DownloadResolveRequest):
     """
     Resolve an intermediate hoster link (e.g. Downloadwella) to a direct CDN download link.
-    Delegates to the isolated Scraper Microservice (Port 8001).
+    Resolves the hoster link in-process.
     """
     try:
-        async with httpx.AsyncClient(timeout=SCRAPER_SERVICE_TIMEOUT + 4.0) as scraper_client:
-            resp = await scraper_client.post(
-                f"{SCRAPER_SERVICE_URL}/api/v1/scraper/bypass",
-                json={"url": body.url}
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return DownloadResolveResponse(
-                    original_url=data.get("original_url", body.url),
-                    direct_url=data.get("direct_url"),
-                    file_name=data.get("file_name"),
-                    file_size=data.get("file_size"),
-                    status=data.get("status", "failed"),
-                    error=data.get("error")
-                )
-            return DownloadResolveResponse(
-                original_url=body.url,
-                status="failed",
-                error=f"Bypass service returned HTTP {resp.status_code}"
-            )
-    except (httpx.RequestError, httpx.TimeoutException) as exc:
-        logger.warning("Scraper bypass service unreachable: %s", exc)
+        direct_url, file_name, file_size, error = await resolve_download_link(body.url)
         return DownloadResolveResponse(
             original_url=body.url,
-            status="failed",
-            error="Bypass service is currently unreachable"
+            direct_url=direct_url,
+            file_name=file_name,
+            file_size=file_size,
+            status="resolved" if direct_url else "failed",
+            error=error,
         )
     except Exception as exc:
-        logger.exception("Unexpected error in download link resolution: %s", exc)
+        logger.warning("Thenkiri bypass failed: %s", exc)
         return DownloadResolveResponse(
             original_url=body.url,
             status="failed",

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Startup script for the Movie Scraper Microservice (Port 8001).
-Runs independently from the primary Movie Recommender API (Port 8000).
+Legacy startup script retained for local compatibility.
+
+Scraping is now embedded in the main API process. Deploy ``run_api.py`` (or
+the Procfile) as the only web service instead of starting this module.
 """
 
 import os
