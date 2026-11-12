@@ -1,9 +1,9 @@
 package middleware
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
 	"time"
 
@@ -23,31 +23,30 @@ import (
 func RateLimit(rdb *redis.Client, maxRequests int, windowSecs int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := context.Background()
+			ctx := r.Context()
 			ip := getIP(r)
 			key := fmt.Sprintf("rl:%s", ip)
 
 			now := time.Now().UnixMilli()
 			windowStart := now - (windowSecs * 1000)
 
-			pipe := rdb.Pipeline()
-
-			// Remove timestamps outside the current window
-			pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", windowStart))
-
-			// Count requests in current window
-			countCmd := pipe.ZCard(ctx, key)
-
-			// Add current request timestamp with a unique suffix to prevent collisions
-			pipe.ZAdd(ctx, key, redis.Z{
-				Score:  float64(now),
-				Member: fmt.Sprintf("%d-%f", now, rand.Float64()),
-			})
-
-			// Set key expiry to window size so Redis auto-cleans
-			pipe.Expire(ctx, key, time.Duration(windowSecs)*time.Second)
-
-			_, err := pipe.Exec(ctx)
+			// Count-and-add must be one atomic operation. A normal pipeline can
+			// interleave two requests between ZCARD and ZADD and let both through.
+			lua := redis.NewScript(`
+				redis.call('ZREMRANGEBYSCORE', KEYS[1], '0', ARGV[1])
+				local count = redis.call('ZCARD', KEYS[1])
+				if count >= tonumber(ARGV[2]) then
+					redis.call('EXPIRE', KEYS[1], ARGV[3])
+					return count
+				end
+				redis.call('ZADD', KEYS[1], ARGV[4], ARGV[5])
+				redis.call('EXPIRE', KEYS[1], ARGV[3])
+				return count
+			`)
+			countValue, err := lua.Run(ctx, rdb, []string{key},
+				windowStart, maxRequests, windowSecs,
+				now, fmt.Sprintf("%d-%f", now, rand.Float64()),
+			).Int64()
 			if err != nil {
 				// Redis down — fail open (let request through) rather than
 				// killing the whole service. Log it though.
@@ -55,7 +54,7 @@ func RateLimit(rdb *redis.Client, maxRequests int, windowSecs int64) func(http.H
 				return
 			}
 
-			count := countCmd.Val()
+			count := countValue
 			if count >= int64(maxRequests) {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", maxRequests))
@@ -79,5 +78,8 @@ func getIP(r *http.Request) string {
 	// Do not trust client-controlled forwarding headers. If the gateway is
 	// deployed behind a trusted load balancer, normalize its address before
 	// this middleware or add an explicit trusted-proxy implementation.
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
 	return r.RemoteAddr
 }

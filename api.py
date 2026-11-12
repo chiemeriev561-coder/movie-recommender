@@ -231,13 +231,17 @@ def remove_user_favorite_key(user_ip: str, name: str, year: int) -> None:
 def build_user_favorite_movies(user_ip: str) -> tuple[Set[tuple[str, int]], List[Dict[str, Any]]]:
     """Build recommendation seeds from local movies and TMDB-only favorites."""
     fav_keys = get_user_favorite_keys(user_ip)
-    _update_movies_map_if_needed()
+    # The recommender can replace its map when the dataset is reloaded. Read
+    # the module attribute after refreshing instead of using the imported
+    # snapshot captured during API startup.
+    movie_recommender._update_movies_map_if_needed()
+    current_movies_map = movie_recommender._movies_map
 
     favorite_movies = []
     for name, year in fav_keys:
         key = (name.lower(), year)
-        if key in _movies_map:
-            favorite_movies.append(_movies_map[key])
+        if key in current_movies_map:
+            favorite_movies.append(current_movies_map[key])
         else:
             favorite = {
                 "name": name,
@@ -377,7 +381,7 @@ class MovieDownloadsResponse(BaseModel):
     movie_id: str
     title: str
     available: bool = False
-    options: List[MovieDownloadOption] = []
+    options: List[MovieDownloadOption] = Field(default_factory=list)
     source_url: Optional[str] = None
     status: str = "ok"
     error: Optional[str] = None
@@ -424,8 +428,8 @@ class RecommendationsResponse(BaseModel):
     total_available: int
 
 class FavoriteRequest(BaseModel):
-    name: str
-    year: int
+    name: str = Field(..., min_length=1, max_length=200)
+    year: int = Field(..., ge=1888, le=2100)
 
 class FavoriteResponse(BaseModel):
     name: str
@@ -1942,6 +1946,8 @@ async def get_movie_downloads(request: Request, movie_id: str, title: Optional[s
     Returns available high-speed download options for a movie from Thenkiri.
     """
     clean_id = str(movie_id).strip()
+    if not clean_id:
+        raise HTTPException(status_code=422, detail="movie_id cannot be empty")
     target_title = title.strip() if title else None
 
     # If title not provided, attempt to look it up from local movie records or TMDB
@@ -1949,8 +1955,9 @@ async def get_movie_downloads(request: Request, movie_id: str, title: Optional[s
         try:
             if clean_id.isdigit():
                 num_id = int(clean_id)
-                for (m_name, _), m in _movies_map.items():
-                    if getattr(m, "id", None) == num_id or m.get("id") == num_id:
+                movie_recommender._update_movies_map_if_needed()
+                for m in movie_recommender._movies_map.values():
+                    if m.get("id") == num_id or m.get("movieId") == num_id:
                         target_title = m.get("name")
                         break
             if not target_title and TMDB_API_KEY:
@@ -1968,7 +1975,13 @@ async def get_movie_downloads(request: Request, movie_id: str, title: Optional[s
         target_title = clean_id
 
     # Check cache first (30 minutes)
-    cache_key = f"movie_dl_{clean_id}"
+    # The title affects the upstream search result, so it must be part of the
+    # cache key. Otherwise a caller can receive another title's download page
+    # when the same external ID is requested with a different title.
+    cache_key = indexed_cache_key("movie-downloads", {
+        "movie_id": clean_id,
+        "title": target_title,
+    })
     cached_val = cache.get(cache_key)
     if cached_val:
         return MovieDownloadsResponse(**cached_val)
@@ -2017,16 +2030,6 @@ async def get_movie_downloads(request: Request, movie_id: str, title: Optional[s
             status="scraper_unavailable",
             error="Download service is currently unreachable"
         )
-    except Exception as exc:
-        logger.exception("Unexpected error communicating with scraper service: %s", exc)
-        return MovieDownloadsResponse(
-            movie_id=clean_id,
-            title=target_title,
-            available=False,
-            options=[],
-            status="internal_error",
-            error=str(exc)
-        )
 
 @app.get("/api/tv/{series_id}/downloads", response_model=TVDownloadResponse)
 @limiter.limit("10/minute")
@@ -2037,7 +2040,10 @@ async def get_tv_download_options(
 ):
     """Get download options for a TV series, preferring TV-specific results."""
     target_title = title.strip()
-    cache_key = f"tv_dl_options:{series_id}"
+    cache_key = indexed_cache_key("tv-downloads", {
+        "series_id": series_id,
+        "title": target_title,
+    })
     cached = cache.get(cache_key)
     if cached is not None:
         return TVDownloadResponse(**cached)
@@ -2184,8 +2190,8 @@ async def get_categories(request: Request):
 @limiter.limit("20/minute")
 async def get_favorites(request: Request):
     try:
-        refresh_favorites_state()
-        fav_movies = get_favorite_movies()
+        user_ip = request.client.host if request.client else "unknown"
+        _, fav_movies = build_user_favorite_movies(user_ip)
         return [MovieResponse(**movie) for movie in fav_movies]
     except Exception as e:
         logger.exception("Error getting favorites")
@@ -2196,7 +2202,15 @@ async def get_favorites(request: Request):
 async def add_to_favorites(request: Request, favorite: FavoriteRequest):
     try:
         user_ip = request.client.host if request.client else "unknown"
-        name, year = favorite.name, favorite.year
+        name, year = favorite.name.strip(), favorite.year
+        if not name:
+            raise HTTPException(status_code=422, detail="Movie name cannot be empty")
+
+        # Validate before mutating the user's profile. Previously an invalid
+        # movie was added to fav_keys_* and the endpoint still returned 200.
+        movie_recommender._update_movies_map_if_needed()
+        if (name.strip().lower(), year) not in movie_recommender._movies_map:
+            raise HTTPException(status_code=400, detail="Not found or already in favorites")
 
         # Always attach this favorite to the user's personalization profile,
         # including when it is already present in the global favorites file.
@@ -2219,11 +2233,28 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
 @limiter.limit("5/minute")
 async def remove_from_favorites(
     request: Request,
-    name: str = Query(...),
-    year: int = Query(...),
+    name: Optional[str] = Query(None),
+    year: Optional[int] = Query(None),
+    favorite: Optional[FavoriteRequest] = None,
 ):
     try:
+        # Accept both the documented query form and the POST-compatible JSON
+        # form used by existing clients.
+        if favorite is not None:
+            name = favorite.name
+            year = favorite.year
+        if name is None or year is None:
+            raise HTTPException(status_code=422, detail="name and year are required")
+        name = name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Movie name cannot be empty")
         user_ip = request.client.host if request.client else "unknown"
+
+        user_favorite_keys = get_user_favorite_keys(user_ip)
+        normalized_key = (name.strip().lower(), year)
+        if not any((str(saved_name).strip().lower(), saved_year) == normalized_key
+                   for saved_name, saved_year in user_favorite_keys):
+            raise HTTPException(status_code=404, detail="Not found in favorites")
 
         # Remove from the user's profile regardless of global-file state.
         remove_user_favorite_key(user_ip, name, year)
@@ -3027,6 +3058,8 @@ async def get_discovery_recommendations(
             based_on={'mode': 'tmdb_discovery'},
             total_available=len(recommendations)
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error generating TMDB discovery recommendations")
         raise HTTPException(status_code=500, detail="Internal error")
