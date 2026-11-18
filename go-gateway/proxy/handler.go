@@ -19,8 +19,10 @@ import (
 
 // TTLs for different endpoints
 const (
-	defaultTTL  = 10 * time.Minute
-	trendingTTL = 30 * time.Minute
+	defaultTTL           = 10 * time.Minute
+	trendingTTL          = 30 * time.Minute
+	maxRequestBodyBytes  = 2 << 20  // 2 MiB
+	maxResponseBodyBytes = 10 << 20 // 10 MiB
 )
 
 // Handler holds our upstream URL, Redis client, and custom HTTP client
@@ -55,6 +57,11 @@ func (h *Handler) Cached(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) forward(w http.ResponseWriter, r *http.Request, useCache bool) {
 	ctx := r.Context()
+	if r.ContentLength > maxRequestBodyBytes {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	cacheKey := buildCacheKey(r)
 
 	if useCache {
@@ -102,9 +109,9 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, useCache bool)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readLimited(resp.Body, maxResponseBodyBytes)
 	if err != nil {
-		http.Error(w, "failed to read upstream response", http.StatusInternalServerError)
+		http.Error(w, "upstream response too large or unreadable", http.StatusBadGateway)
 		return
 	}
 
@@ -125,6 +132,17 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, useCache bool)
 	w.Header().Set("X-Cache", "MISS")
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, bytes.NewReader(body))
+}
+
+func readLimited(reader io.Reader, limit int64) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("body exceeds %d bytes", limit)
+	}
+	return body, nil
 }
 
 func remoteHost(remoteAddr string) string {
@@ -212,7 +230,7 @@ type FavoriteRequest struct {
 // AddFavoriteHandler forwards write to Python to sync IP caching, then reloads Go's local cache
 func (h *Handler) AddFavoriteHandler(w http.ResponseWriter, r *http.Request) {
 	// Read request body to parse favorite details
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := readLimited(r.Body, maxRequestBodyBytes)
 	if err != nil {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
@@ -265,7 +283,7 @@ func (h *Handler) AddFavoriteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readLimited(resp.Body, maxResponseBodyBytes)
 	if err != nil {
 		http.Error(w, "failed to read upstream response", http.StatusInternalServerError)
 		return
@@ -290,7 +308,7 @@ func (h *Handler) AddFavoriteHandler(w http.ResponseWriter, r *http.Request) {
 // RemoveFavoriteHandler forwards write to Python to sync IP caching, then reloads Go's local cache
 func (h *Handler) RemoveFavoriteHandler(w http.ResponseWriter, r *http.Request) {
 	// Read request body to parse favorite details
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := readLimited(r.Body, maxRequestBodyBytes)
 	if err != nil {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
@@ -329,7 +347,7 @@ func (h *Handler) RemoveFavoriteHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readLimited(resp.Body, maxResponseBodyBytes)
 	if err != nil {
 		http.Error(w, "failed to read upstream response", http.StatusInternalServerError)
 		return

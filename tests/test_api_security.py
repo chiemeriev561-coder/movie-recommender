@@ -28,7 +28,7 @@ def test_cors_configuration_allows_lovable_origin_regex():
     assert "https://cine-craft-box.lovable.app" in cors_middleware.kwargs["allow_origins"]
     assert "http://localhost:5173" in cors_middleware.kwargs["allow_origins"]
     assert cors_middleware.kwargs["allow_origin_regex"] == (
-        r"https?://(.*\.)?lovable(app|project)\.com|https?://(.*\.)?lovable\.app"
+        r"^https?://([a-z0-9-]+\.)*lovable(app|project)\.com$|^https?://([a-z0-9-]+\.)*lovable\.app$"
     )
 
 

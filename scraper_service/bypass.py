@@ -8,10 +8,32 @@ import logging
 from typing import Tuple, Optional, Dict
 import httpx
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 from scraper_service.config import DEFAULT_USER_AGENT, SCRAPER_HTTP_TIMEOUT, is_safe_external_url
 
 logger = logging.getLogger("scraper_service.bypass")
+MAX_REDIRECTS = 5
+
+
+async def _safe_request(client: httpx.AsyncClient, method: str, url: str, allowed_hosts: set[str], **kwargs):
+    """Follow redirects only after validating each destination hostname."""
+    current_url = url
+    current_method = method
+    for _ in range(MAX_REDIRECTS + 1):
+        if not is_safe_external_url(current_url, allowed_hosts):
+            raise ValueError("Redirect target is not an approved HTTPS URL")
+        response = await client.request(current_method, current_url, follow_redirects=False, **kwargs)
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            return response
+        location = response.headers.get("location")
+        if not location:
+            return response
+        current_url = urljoin(current_url, location)
+        await response.aclose()
+        if response.status_code in {301, 302, 303}:
+            current_method = "GET"
+    raise ValueError("Too many redirects")
 
 
 async def resolve_downloadwella_http(
@@ -36,9 +58,9 @@ async def resolve_downloadwella_http(
         async with httpx.AsyncClient(
             headers=headers,
             timeout=httpx.Timeout(timeout, connect=5.0),
-            follow_redirects=True,
+            follow_redirects=False,
         ) as client:
-            resp = await client.get(url)
+            resp = await _safe_request(client, "GET", url, {"downloadwella.com"})
             if resp.status_code != 200:
                 return None, None, None, f"Failed to load download page: HTTP {resp.status_code}"
 
@@ -74,7 +96,10 @@ async def resolve_downloadwella_http(
             if not is_safe_external_url(post_url, {"downloadwella.com"}):
                 return None, None, None, "Download form action is not an approved URL"
 
-            step2_resp = await client.post(post_url, data=post_data, headers=headers)
+            step2_resp = await _safe_request(
+                client, "POST", post_url, {"downloadwella.com"},
+                data=post_data, headers=headers,
+            )
             if step2_resp.status_code != 200:
                 return None, None, None, f"Download link generation failed: HTTP {step2_resp.status_code}"
 

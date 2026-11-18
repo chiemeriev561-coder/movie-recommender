@@ -11,6 +11,7 @@ import logging
 from typing import List, Optional, Tuple, Dict
 import httpx
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 from scraper_service.config import (
     THENKIRI_BASE_URL,
@@ -37,6 +38,27 @@ HEADERS = {
 # Cap related season fetches so we stay within memory/time on small hosts
 MAX_RELATED_SEASON_PAGES = 12
 RELATED_FETCH_CONCURRENCY = 3
+MAX_REDIRECTS = 5
+
+
+async def _safe_request(client: httpx.AsyncClient, method: str, url: str, allowed_hosts: set[str], **kwargs):
+    """Follow redirects only when every destination remains on an approved host."""
+    current_url = url
+    current_method = method
+    for _ in range(MAX_REDIRECTS + 1):
+        if not is_safe_external_url(current_url, allowed_hosts):
+            raise ValueError("Redirect target is not an approved HTTPS URL")
+        response = await client.request(current_method, current_url, follow_redirects=False, **kwargs)
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            return response
+        location = response.headers.get("location")
+        if not location:
+            return response
+        current_url = urljoin(current_url, location)
+        await response.aclose()
+        if response.status_code in {301, 302, 303}:
+            current_method = "GET"
+    raise ValueError("Too many redirects")
 
 
 def _extract_year(text: str, fallback_url: str = "") -> Optional[str]:
@@ -142,7 +164,7 @@ class ThenkiriClient:
             self._client = httpx.AsyncClient(
                 headers=HEADERS,
                 timeout=httpx.Timeout(self.timeout, connect=6.0),
-                follow_redirects=True,
+                follow_redirects=False,
                 limits=httpx.Limits(max_keepalive_connections=10, max_connections=20)
             )
         return self._client
@@ -159,7 +181,7 @@ class ThenkiriClient:
         client = await self.get_client()
 
         try:
-            resp = await client.get(search_url)
+            resp = await _safe_request(client, "GET", search_url, {"thenkiri.com"})
             if resp.status_code != 200:
                 logger.warning("Thenkiri search failed with HTTP status %d", resp.status_code)
                 return [], f"Target site returned HTTP {resp.status_code}"
@@ -231,7 +253,7 @@ class ThenkiriClient:
         client = await self.get_client()
 
         try:
-            resp = await client.get(movie_url)
+            resp = await _safe_request(client, "GET", movie_url, {"thenkiri.com"})
             if resp.status_code != 200:
                 return [], None, f"Target page returned HTTP {resp.status_code}"
 
@@ -313,7 +335,10 @@ class ThenkiriClient:
         client = await self.get_client()
 
         try:
-            resp = await client.get(url, headers={**HEADERS, "Referer": THENKIRI_BASE_URL + "/"})
+            resp = await _safe_request(
+                client, "GET", url, {"thenkiri.com"},
+                headers={**HEADERS, "Referer": THENKIRI_BASE_URL + "/"},
+            )
             if resp.status_code != 200:
                 return [], None, f"Target page returned HTTP {resp.status_code}"
 
@@ -398,8 +423,8 @@ class ThenkiriClient:
             async with sem:
                 try:
                     client = await self.get_client()
-                    resp = await client.get(
-                        page_url,
+                    resp = await _safe_request(
+                        client, "GET", page_url, {"thenkiri.com"},
                         headers={**HEADERS, "Referer": THENKIRI_BASE_URL + "/"},
                     )
                     if resp.status_code != 200:

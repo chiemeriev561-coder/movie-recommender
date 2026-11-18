@@ -271,7 +271,10 @@ base_origins = [
 env_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
 ALLOWED_ORIGINS = list(dict.fromkeys(base_origins + env_origins))
 env_regex = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip()
-ALLOWED_ORIGIN_REGEX = env_regex if env_regex else r"https?://(.*\.)?lovable(app|project)\.com|https?://(.*\.)?lovable\.app"
+# Anchor the default pattern.  Without anchors, origins such as
+# ``https://lovable.app.evil.example`` could match while credentials are
+# enabled on the CORS middleware.
+ALLOWED_ORIGIN_REGEX = env_regex if env_regex else r"^https?://([a-z0-9-]+\.)*lovable(app|project)\.com$|^https?://([a-z0-9-]+\.)*lovable\.app$"
 
 FAVORITES_FILE = os.getenv("FAVORITES_FILE", "favorites.json")
 
@@ -2616,9 +2619,10 @@ async def personalized_content_recommendations(
     try:
         import movie_recommender as mr
 
-        # Load favorites from disk and map to full movie dicts (local favorites only)
-        refresh_favorites_state()
-        favorite_movies = get_favorite_movies()
+        # Personalization is scoped to the requesting user.  The JSON file is
+        # a legacy global persistence store and must not be used as the seed
+        # set for this endpoint.
+        _, favorite_movies = build_user_favorite_movies(user_ip)
         if not favorite_movies:
             # If no local favorites exist, fall back to TMDB-based personalized recommendations
             raise HTTPException(status_code=404, detail="No favorites found for user; add favorites first")
