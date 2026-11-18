@@ -145,27 +145,54 @@ def get_genre_ids_from_names(genre_names: List[str]) -> List[int]:
 
 # Persistent Disk Cache for TMDB responses and user state
 cache = diskcache.Cache("./.api_cache")
-CACHE_INDEX_PREFIX = "cache-index:v1:"
 _background_tasks: Set[asyncio.Task] = set()
 _scheduled_recommendations: Dict[tuple[int, int], asyncio.Task] = {}
+_tmdb_inflight: Dict[str, asyncio.Task] = {}
+_tmdb_client: Optional[httpx.AsyncClient] = None
+TV_SEASON_FETCH_CONCURRENCY = 4
+_tv_season_semaphore = asyncio.Semaphore(TV_SEASON_FETCH_CONCURRENCY)
+
+
+async def cache_get(key: str, default: Any = None) -> Any:
+    """Read DiskCache without blocking the event loop."""
+    return await asyncio.to_thread(cache.get, key, default)
+
+
+async def cache_set(key: str, value: Any, *, expire: Optional[float] = None) -> None:
+    """Write DiskCache without blocking the event loop."""
+    if expire is None:
+        await asyncio.to_thread(cache.set, key, value)
+    else:
+        await asyncio.to_thread(cache.set, key, value, expire=expire)
+
+
+async def get_tmdb_client() -> httpx.AsyncClient:
+    """Return the process-wide TMDB client and connection pool."""
+    global _tmdb_client
+    if _tmdb_client is None or _tmdb_client.is_closed:
+        _tmdb_client = httpx.AsyncClient(timeout=15.0, limits=httpx.Limits(max_connections=50, max_keepalive_connections=20))
+    return _tmdb_client
+
+
+async def coalesced_tmdb_call(cache_key: str, operation):
+    """Share one upstream request among concurrent cache misses."""
+    existing = _tmdb_inflight.get(cache_key)
+    if existing is not None and not existing.done():
+        return await existing
+    task = asyncio.create_task(operation())
+    _tmdb_inflight[cache_key] = task
+    try:
+        return await task
+    finally:
+        if _tmdb_inflight.get(cache_key) is task:
+            _tmdb_inflight.pop(cache_key, None)
 
 
 def indexed_cache_key(namespace: str, values: Dict[str, Any]) -> str:
-    """Build a compact, deterministic cache key and record it in an index.
-
-    DiskCache indexes its SQLite keys, but keeping a namespace index lets us
-    inspect/expire related entries without scanning the whole cache and avoids
-    expensive, process-dependent Python hashes in hot paths.
-    """
+    """Build a compact, deterministic cache key in constant time."""
     payload = json.dumps(values, sort_keys=True, separators=(",", ":"), default=str)
     digest = hashlib.blake2b(payload.encode("utf-8"), digest_size=16).hexdigest()
-    key = f"{namespace}:v1:{digest}"
-    index_key = f"{CACHE_INDEX_PREFIX}{namespace}"
-    keys = cache.get(index_key, set())
-    if key not in keys:
-        keys.add(key)
-        cache.set(index_key, keys, expire=86400 * 30)
-    return key
+    return f"{namespace}:v1:{digest}"
 
 
 def schedule_background(coro) -> asyncio.Task:
@@ -305,6 +332,10 @@ async def lifespan(app: FastAPI):
     if _background_tasks:
         await asyncio.gather(*_background_tasks, return_exceptions=True)
     await thenkiri_client.close()
+    global _tmdb_client
+    if _tmdb_client is not None and not _tmdb_client.is_closed:
+        await _tmdb_client.aclose()
+        _tmdb_client = None
     logger.info("Shutting down Movie Recommender API")
 
 # Initialize FastAPI app
@@ -503,7 +534,7 @@ AFFILIATE_LINKS = {
 async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
     """Helper to fetch multiple pages of trending/popular movies from TMDB."""
     cache_key = f"trending_pages_{pages}"
-    cached_result = cache.get(cache_key)
+    cached_result = await cache_get(cache_key)
     if cached_result is not None:
         logger.info(f"Returning cached trending results for {pages} pages")
         return cached_result
@@ -513,7 +544,8 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
         return []
 
     all_results = []
-    async with httpx.AsyncClient(timeout=7.0) as client:
+    client = await get_tmdb_client()
+    if client is not None:
         # Fetch multiple pages concurrently to avoid sequential HTTP wait
         tasks = [
             client.get(f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&page={page}")
@@ -552,7 +584,7 @@ async def fetch_trending_from_tmdb(pages: int = 3) -> List[Dict[str, Any]]:
         })
     
     # Cache the formatted results for 24 hours
-    cache.set(cache_key, formatted, expire=86400)
+    await cache_set(cache_key, formatted, expire=86400)
     return formatted
 
 def select_tmdb_trailer(videos: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -593,7 +625,7 @@ async def tmdb_search_movie(title: str, year: Optional[int] = None, limit: int =
     cache_key = indexed_cache_key("tmdb-search", {
         "title": title.strip().casefold(), "year": year, "limit": limit
     })
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
@@ -608,17 +640,15 @@ async def tmdb_search_movie(title: str, year: Optional[int] = None, limit: int =
                 logger.warning("TMDB search returned status %s for title=%s", resp.status_code, title)
                 return []
             results = resp.json().get("results", [])[:limit]
-            cache.set(cache_key, results, expire=86400)
+            await cache_set(cache_key, results, expire=86400)
             return results
         except Exception:
             logger.exception("TMDB search request failed for title=%s year=%s", title, year)
             return []
 
-    if client:
-        return await _fetch(client)
-    else:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            return await _fetch(client)
+    async def operation():
+        return await _fetch(client or await get_tmdb_client())
+    return await coalesced_tmdb_call(cache_key, operation)
 
 
 async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10, client: Optional[httpx.AsyncClient] = None) -> List[Dict[str, Any]]:
@@ -626,7 +656,7 @@ async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10, client: Option
     if not TMDB_API_KEY:
         return []
     cache_key = indexed_cache_key("tmdb-recommendations", {"tmdb_id": tmdb_id, "top_n": top_n})
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
@@ -650,17 +680,15 @@ async def tmdb_get_recommendations(tmdb_id: int, top_n: int = 10, client: Option
                     "description": r.get("overview"),
                     "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
                 })
-            cache.set(cache_key, formatted, expire=86400)
+            await cache_set(cache_key, formatted, expire=86400)
             return formatted
         except Exception:
             logger.exception("Failed to fetch TMDB recommendations for id=%s", tmdb_id)
             return []
 
-    if client:
-        return await _fetch(client)
-    else:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            return await _fetch(client)
+    async def operation():
+        return await _fetch(client or await get_tmdb_client())
+    return await coalesced_tmdb_call(cache_key, operation)
 
 
 async def tmdb_get_similar(tmdb_id: int, top_n: int = 10, client: Optional[httpx.AsyncClient] = None) -> List[Dict[str, Any]]:
@@ -668,7 +696,7 @@ async def tmdb_get_similar(tmdb_id: int, top_n: int = 10, client: Optional[httpx
     if not TMDB_API_KEY:
         return []
     cache_key = indexed_cache_key("tmdb-similar", {"tmdb_id": tmdb_id, "top_n": top_n})
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
@@ -692,17 +720,15 @@ async def tmdb_get_similar(tmdb_id: int, top_n: int = 10, client: Optional[httpx
                     "description": r.get("overview"),
                     "poster_url": f"https://image.tmdb.org/t/p/w500{r.get('poster_path')}" if r.get('poster_path') else None
                 })
-            cache.set(cache_key, formatted, expire=86400)
+            await cache_set(cache_key, formatted, expire=86400)
             return formatted
         except Exception:
             logger.exception("Failed to fetch TMDB similar for id=%s", tmdb_id)
             return []
 
-    if client:
-        return await _fetch(client)
-    else:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            return await _fetch(client)
+    async def operation():
+        return await _fetch(client or await get_tmdb_client())
+    return await coalesced_tmdb_call(cache_key, operation)
 
 
 async def tmdb_discover(
@@ -735,7 +761,7 @@ async def tmdb_discover(
         params["vote_average.gte"] = rating_min
     
     cache_key = indexed_cache_key("tmdb-discover", params)
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return cached[:limit]
 
@@ -761,17 +787,15 @@ async def tmdb_discover(
                     "tmdb_popularity": r.get("popularity", 0.0),
                     "tmdb_rank": r.get("vote_count", 0)
                 })
-            cache.set(cache_key, formatted, expire=86400)
+            await cache_set(cache_key, formatted, expire=86400)
             return formatted
         except Exception:
             logger.exception("Failed to fetch TMDB discover")
             return []
 
-    if client:
-        return await _fetch(client)
-    else:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            return await _fetch(client)
+    async def operation():
+        return await _fetch(client or await get_tmdb_client())
+    return await coalesced_tmdb_call(cache_key, operation)
 
 
 def convert_tmdb_to_content_format(tmdb_movie: Dict[str, Any]) -> Dict[str, Any]:
@@ -952,28 +976,28 @@ async def get_hybrid_recommendations(
 async def get_person_id(name: str) -> Optional[int]:
     """Get TMDB person ID from name"""
     cache_key = f"person_id_{name.lower()}"
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return cached
     
     if not TMDB_API_KEY:
         return None
     
-    async with httpx.AsyncClient(timeout=7.0) as client:
-        try:
-            response = await client.get(
-                "https://api.themoviedb.org/3/search/person",
-                params={"api_key": TMDB_API_KEY, "query": name}
-            )
-            if response.status_code == 200:
-                data = response.json()
-                results = data.get("results", [])
-                if results:
-                    person_id = results[0].get("id")
-                    cache.set(cache_key, person_id, expire=86400 * 7)  # Cache for 7 days
-                    return person_id
-        except Exception as e:
-            logger.warning(f"Failed to get person ID for {name}: {e}")
+    client = await get_tmdb_client()
+    try:
+        response = await client.get(
+            "https://api.themoviedb.org/3/search/person",
+            params={"api_key": TMDB_API_KEY, "query": name}
+        )
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results", [])
+            if results:
+                person_id = results[0].get("id")
+                await cache_set(cache_key, person_id, expire=86400 * 7)  # Cache for 7 days
+                return person_id
+    except Exception as e:
+        logger.warning(f"Failed to get person ID for {name}: {e}")
     
     return None
 
@@ -1232,8 +1256,8 @@ async def _tmdb_tv_get(path: str, params: Optional[Dict[str, Any]] = None) -> Di
         raise HTTPException(status_code=503, detail="TMDB integration is not configured")
     request_params = {"api_key": TMDB_API_KEY, **(params or {})}
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(f"https://api.themoviedb.org/3{path}", params=request_params)
+        client = await get_tmdb_client()
+        response = await client.get(f"https://api.themoviedb.org/3{path}", params=request_params)
     except httpx.RequestError:
         logger.exception("TMDB TV request failed: %s", path)
         raise HTTPException(status_code=502, detail="Failed to reach TMDB")
@@ -1250,12 +1274,12 @@ async def _tmdb_tv_get(path: str, params: Optional[Dict[str, Any]] = None) -> Di
 
 async def _fetch_tv_season(series_id: int, season_number: int) -> Dict[str, Any]:
     cache_key = f"tv-season:v2:{series_id}:{season_number}"
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return cached
     data = await _tmdb_tv_get(f"/tv/{series_id}/season/{season_number}")
     data["episodes"] = [_format_episode(ep, season_number) for ep in data.get("episodes", [])]
-    cache.set(cache_key, data, expire=86400)
+    await cache_set(cache_key, data, expire=86400)
     return data
 
 
@@ -1268,12 +1292,12 @@ async def get_trending_tv(request: Request, genre: Optional[str] = Query(None)):
         if genre_id:
             params["with_genres"] = genre_id
     cache_key = indexed_cache_key("tv-trending", params)
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return cached
     data = await _tmdb_tv_get("/discover/tv", {**params, "sort_by": "popularity.desc"})
     result = [_format_tv_summary(item) for item in data.get("results", [])[:20]]
-    cache.set(cache_key, result, expire=1800)
+    await cache_set(cache_key, result, expire=1800)
     return result
 
 
@@ -1307,17 +1331,13 @@ async def search_tv_series(
         if rating_max is not None: params["vote_average.lte"] = rating_max
         params["sort_by"] = sort_by
     cache_key = indexed_cache_key("tv-search", {"path": path, **params})
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return cached
     data = await _tmdb_tv_get(path, params)
     results = [_format_tv_summary(item) for item in data.get("results", [])[:20]]
     payload = {"search_results": results, "recommendations": [], "total_results": data.get("total_results", len(results)), "source": "TMDB"}
-    cache.set(cache_key, payload, expire=3600)
-    return payload
-
-
-    cache.set(cache_key, payload, expire=3600)
+    await cache_set(cache_key, payload, expire=3600)
     return payload
 
 
@@ -1325,12 +1345,12 @@ async def search_tv_series(
 @limiter.limit("30/minute")
 async def get_tv_series_details(request: Request, series_id: int = Path(..., ge=1)):
     cache_key = f"tv-details:v2:{series_id}"
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return cached
     data = await _tmdb_tv_get(f"/tv/{series_id}", {"append_to_response": "credits,watch/providers"})
     result = _format_tv_summary(data, include_details=True)
-    cache.set(cache_key, result, expire=86400)
+    await cache_set(cache_key, result, expire=86400)
     return result
 
 
@@ -1372,7 +1392,15 @@ async def get_tv_episodes(request: Request, series_id: int = Path(..., ge=1), se
         return (await _fetch_tv_season(series_id, season)).get("episodes", [])
     details = await _tmdb_tv_get(f"/tv/{series_id}")
     seasons = [s.get("season_number", 0) for s in details.get("seasons", [])]
-    season_data = await asyncio.gather(*(_fetch_tv_season(series_id, number) for number in seasons), return_exceptions=True)
+    # Limit fan-out both per request and across concurrent requests.
+    async def fetch_limited(number: int):
+        async with _tv_season_semaphore:
+            return await _fetch_tv_season(series_id, number)
+
+    season_data = await asyncio.gather(
+        *(fetch_limited(number) for number in seasons[:30]),
+        return_exceptions=True,
+    )
     return [episode for data in season_data if isinstance(data, dict) for episode in data.get("episodes", [])]
 
 
@@ -1401,7 +1429,7 @@ async def get_episode_stream(
 @limiter.limit("30/minute")
 async def get_tv_recommendations(request: Request, series_id: int = Path(..., ge=1), top_n: int = Query(10, ge=1, le=30)):
     cache_key = f"tv-recommendations:v2:{series_id}:{top_n}"
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return cached
     recommendations, similar = await asyncio.gather(
@@ -1415,7 +1443,7 @@ async def get_tv_recommendations(request: Request, series_id: int = Path(..., ge
             result.append(_format_tv_summary(item))
             if len(result) >= top_n:
                 break
-    cache.set(cache_key, result, expire=86400)
+    await cache_set(cache_key, result, expire=86400)
     return result
 
 
@@ -1442,14 +1470,14 @@ async def get_trending_movies(request: Request, genre: Optional[str] = Query(Non
         add_user_genre(user_ip, genre)
 
     cache_key = f"trending_v1"
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         trending_data = cached
     else:
         trending_data = await fetch_trending_from_tmdb()
         if trending_data:
             # Cache for 30 minutes
-            cache.set(cache_key, trending_data, expire=1800)
+            await cache_set(cache_key, trending_data, expire=1800)
 
     # Fall back to local dataset if TMDB returns no data
     if not trending_data:
@@ -1642,7 +1670,7 @@ async def advanced_search(
         "advanced-search-tmdb" if TMDB_API_KEY else "advanced-search-local",
         cache_params,
     )
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         logger.info(f"Returning cached advanced search for {query or 'filters'}")
         return AdvancedSearchResponse.model_validate(cached) if isinstance(cached, dict) else cached
@@ -1692,7 +1720,7 @@ async def advanced_search(
             rec_cache_key = indexed_cache_key(
                 "tmdb-recommendations", {"tmdb_id": top_match_id, "top_n": 10}
             )
-            cached_recs = cache.get(rec_cache_key)
+            cached_recs = await cache_get(rec_cache_key)
             if cached_recs is not None:
                 recommendations = [MovieResponse(**r) for r in cached_recs]
             elif TMDB_API_KEY:
@@ -1729,7 +1757,7 @@ async def advanced_search(
     )
     
     # Cache for 1 hour
-    cache.set(cache_key, response.model_dump(), expire=3600)
+    await cache_set(cache_key, response.model_dump(), expire=3600)
     
     return response
 
@@ -1768,7 +1796,7 @@ async def get_featured_movies(request: Request):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="TMDB integration is not configured")
 
     cache_key = "featured_popular_top_v1"
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return FeaturedResponse(latest_movies=[MovieResponse(**m) for m in cached.get("latest", [])], old_movies=[MovieResponse(**m) for m in cached.get("old", [])])
 
@@ -1817,7 +1845,7 @@ async def get_featured_movies(request: Request):
         })
 
     # Cache for 1 hour
-    cache.set(cache_key, {"latest": latest_movies, "old": old_movies}, expire=3600)
+    await cache_set(cache_key, {"latest": latest_movies, "old": old_movies}, expire=3600)
 
     return FeaturedResponse(latest_movies=[MovieResponse(**m) for m in latest_movies], old_movies=[MovieResponse(**m) for m in old_movies])
 
@@ -1828,7 +1856,7 @@ async def get_top_movies(request: Request, limit: int = Query(10, ge=1, le=50)):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="TMDB integration is not configured")
 
     cache_key = f"top_rated_{limit}_v1"
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return [MovieResponse(**m) for m in cached]
 
@@ -1862,7 +1890,7 @@ async def get_top_movies(request: Request, limit: int = Query(10, ge=1, le=50)):
         })
 
     # Cache for 1 hour
-    cache.set(cache_key, top_movies, expire=3600)
+    await cache_set(cache_key, top_movies, expire=3600)
 
     return [MovieResponse(**m) for m in top_movies]
 
@@ -1876,7 +1904,7 @@ async def get_movie_trailer(request: Request, movie_id: int):
         )
 
     cache_key = f"trailer_{movie_id}"
-    cached_result = cache.get(cache_key)
+    cached_result = await cache_get(cache_key)
     if cached_result is not None:
         return TrailerResponse(youtube_key=cached_result)
 
@@ -1919,7 +1947,7 @@ async def get_movie_trailer(request: Request, movie_id: int):
     if not trailer:
         raise HTTPException(status_code=404, detail="No YouTube trailer found")
 
-    cache.set(cache_key, trailer["key"], expire=86400 * 7)  # Cache trailers for 7 days
+    await cache_set(cache_key, trailer["key"], expire=86400 * 7)  # Cache trailers for 7 days
     return TrailerResponse(youtube_key=trailer["key"])
 
 @app.get("/api/movies/{movie_id}/stream", response_model=StreamResponse)
@@ -1985,7 +2013,7 @@ async def get_movie_downloads(request: Request, movie_id: str, title: Optional[s
         "movie_id": clean_id,
         "title": target_title,
     })
-    cached_val = cache.get(cache_key)
+    cached_val = await cache_get(cache_key)
     if cached_val:
         return MovieDownloadsResponse(**cached_val)
 
@@ -1999,7 +2027,7 @@ async def get_movie_downloads(request: Request, movie_id: str, title: Optional[s
             res = MovieDownloadsResponse(movie_id=clean_id, title=target_title, available=False,
                                          options=[], status="not_found",
                                          error="No download sources found for movie title")
-            cache.set(cache_key, res.model_dump(), expire=1800)
+            await cache_set(cache_key, res.model_dump(), expire=1800)
             return res
 
         movie_page_url = results[0].url
@@ -2020,7 +2048,7 @@ async def get_movie_downloads(request: Request, movie_id: str, title: Optional[s
         res = MovieDownloadsResponse(movie_id=clean_id, title=found_title or target_title,
                                      available=bool(options), options=options,
                                      source_url=movie_page_url, status="ok")
-        cache.set(cache_key, res.model_dump(), expire=3600)
+        await cache_set(cache_key, res.model_dump(), expire=3600)
         return res
 
     except Exception as exc:
@@ -2047,7 +2075,7 @@ async def get_tv_download_options(
         "series_id": series_id,
         "title": target_title,
     })
-    cached = cache.get(cache_key)
+    cached = await cache_get(cache_key)
     if cached is not None:
         return TVDownloadResponse(**cached)
 
@@ -2073,7 +2101,7 @@ async def get_tv_download_options(
             seasons=[season.model_dump() for season in seasons],
             is_available=bool(seasons),
         )
-        cache.set(cache_key, response.model_dump(), expire=1800)
+        await cache_set(cache_key, response.model_dump(), expire=1800)
         return response
     except Exception as exc:
         logger.warning("Thenkiri TV scraper failed for series_id=%s: %s", series_id, exc)
@@ -2116,7 +2144,7 @@ async def get_movie_recommendations(request: Request, movie_id: int):
 
     clean_id = str(movie_id).strip()
     cache_key = f"tmdb_rec_{clean_id}"
-    cached_result = cache.get(cache_key)
+    cached_result = await cache_get(cache_key)
     if cached_result is not None:
         return TMDBRecommendationsResponse(movies=cached_result)
 
@@ -2166,7 +2194,7 @@ async def get_movie_recommendations(request: Request, movie_id: int):
         for m in raw_results[:10]
     ]
 
-    cache.set(cache_key, recommendations, expire=86400)  # Cache recommendations for 24 hours
+    await cache_set(cache_key, recommendations, expire=86400)  # Cache recommendations for 24 hours
     return TMDBRecommendationsResponse(movies=recommendations)
 
 @app.get("/api/genres", response_model=List[GenreResponse])
@@ -2322,7 +2350,7 @@ async def get_watch_providers(
     
     clean_id = str(movie_id).strip()
     cache_key = f"watch_providers_{clean_id}_{country_code}"
-    cached_result = cache.get(cache_key)
+    cached_result = await cache_get(cache_key)
     if cached_result is not None:
         return cached_result
     
@@ -2407,7 +2435,7 @@ async def get_watch_providers(
     )
     
     # Cache for 24 hours
-    cache.set(cache_key, result, expire=86400)
+    await cache_set(cache_key, result, expire=86400)
     
     return result
 
@@ -2737,7 +2765,7 @@ async def get_personalized_recommendations(
             "limit": limit,
             "include_viewed": include_viewed
         })
-        cached = cache.get(cache_key)
+        cached = await cache_get(cache_key)
         if cached is not None:
             logger.info(f"Returning cached personalized recommendations for user {user_ip}")
             return RecommendationsResponse.model_validate(cached) if isinstance(cached, dict) else cached
@@ -2830,7 +2858,7 @@ async def get_personalized_recommendations(
         )
         
         # Cache for 30 minutes
-        cache.set(cache_key, response.model_dump(), expire=1800)
+        await cache_set(cache_key, response.model_dump(), expire=1800)
         
         return response
         
@@ -2903,7 +2931,7 @@ async def get_hybrid_recommendations_endpoint(
                 key=lambda item: (str(item[0]).lower(), item[1]),
             ),
         })
-        cached_response = cache.get(hybrid_cache_key)
+        cached_response = await cache_get(hybrid_cache_key)
         if cached_response is not None:
             logger.info("Returning cached hybrid recommendations")
             return RecommendationsResponse.model_validate(cached_response)
@@ -2957,7 +2985,7 @@ async def get_hybrid_recommendations_endpoint(
         # Hybrid scoring is personalized and relatively expensive, so keep
         # the assembled response for 30 minutes. A changed favorites set or
         # any changed request parameter produces a different key above.
-        cache.set(hybrid_cache_key, response.model_dump(), expire=1800)
+        await cache_set(hybrid_cache_key, response.model_dump(), expire=1800)
         return response
         
     except HTTPException:
