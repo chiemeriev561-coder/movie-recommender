@@ -51,7 +51,7 @@ DEFAULT_FUZZY_THRESHOLD = 70
 FUZZY_MAX_CANDIDATES = 250
 
 TOKEN_SPLIT_REGEX = re.compile(r'[\s/,\-|]+')
-GENRE_SPLIT_REGEX = re.compile(r'[\/|,]')
+GENRE_SPLIT_REGEX = re.compile(r'[/|,]')
 
 
 # Initialize logger at module level
@@ -681,9 +681,10 @@ def _movie_text_parts(movie: Dict[str, Any]) -> Tuple[str, str]:
     """Return normalized search text for genre and category filters."""
     if '_genre_search_text' in movie and '_category_search_text' in movie:
         return movie['_genre_search_text'], movie['_category_search_text']
-    genre_parts = [str(movie.get('genre', ''))]
-    genre_parts.extend(movie.get('all_genres', []))
-    genre_text = " ".join(part.lower() for part in genre_parts if part).strip()
+    genre_raw = str(movie.get('genre', ''))
+    all_g = [t.strip() for t in GENRE_SPLIT_REGEX.split(genre_raw) if t.strip()]
+    genre_parts = [genre_raw.lower()] + [g.lower() for g in all_g]
+    genre_text = " ".join(part for part in genre_parts if part).strip()
     category_text = str(movie.get('category', '')).lower()
     return genre_text, category_text
 
@@ -759,7 +760,7 @@ def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool
                 category_v = m['_category_lower']
                 name_tokens = m['_name_tokens']
                 # token-level match -> highest priority
-                if any(t in name_tokens or t == genre_v or t == category_v for t in tokens):
+                if any(t in name_tokens or t in genre_v or t in category_v for t in tokens):
                     matches_with_priority.append((m, 1000))
                     continue
                 # startswith on name tokens -> high priority
@@ -776,9 +777,9 @@ def find_matches(query_text: str = '', max_results: int = 30, enable_fuzzy: bool
         existing_keys = {m['_key'] for m, _ in matches_with_priority}
         candidates = [m for m in movie_list if m['_key'] not in existing_keys]
         scored = []
-        # Cap the fuzzy candidate set by rating/box-office to reduce work
-        candidates_sorted = sorted(candidates, key=lambda x: (x.get('rating',0), x.get('box_office_millions',0)), reverse=True)
-        candidate_subset = candidates_sorted[:FUZZY_MAX_CANDIDATES]
+        # Use first N candidates without biasing by rating/box office;
+        # previously sorted by rating descending which excluded lower-rated movies
+        candidate_subset = candidates[:FUZZY_MAX_CANDIDATES]
         if rprocess is not None:
             choices = [m.get('_search_text', f"{m.get('name','')} {m.get('genre','')} {m.get('category','')}").lower() for m in candidate_subset]
             try:
@@ -880,7 +881,7 @@ def ensure_search_fields(movie: dict) -> None:
     movie['_genre_lower'] = genre_l
     movie['_category_lower'] = category_l
     movie['_name_tokens'] = set(t for t in TOKEN_SPLIT_REGEX.split(name_l) if t)
-    movie['_key'] = (name_l, movie.get('year'))
+    movie['_key'] = (name_l, movie.get('year', 0))
 
     # Precompute genre and category search texts
     genre_parts = [genre_l] + [g.lower() for g in movie['all_genres']]
