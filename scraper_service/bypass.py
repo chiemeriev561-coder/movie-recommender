@@ -8,35 +8,60 @@ import logging
 from typing import Tuple, Optional, Dict
 import httpx
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse
+from urllib.parse import urljoin
 
-from scraper_service.config import DEFAULT_USER_AGENT, SCRAPER_HTTP_TIMEOUT
+from scraper_service.config import DEFAULT_USER_AGENT, SCRAPER_HTTP_TIMEOUT, is_safe_external_url
 
 logger = logging.getLogger("scraper_service.bypass")
+MAX_REDIRECTS = 5
+
+
+async def _safe_request(client: httpx.AsyncClient, method: str, url: str, allowed_hosts: set[str], **kwargs):
+    """Follow redirects only after validating each destination hostname."""
+    current_url = url
+    current_method = method
+    for _ in range(MAX_REDIRECTS + 1):
+        if not is_safe_external_url(current_url, allowed_hosts):
+            raise ValueError("Redirect target is not an approved HTTPS URL")
+        response = await client.request(current_method, current_url, follow_redirects=False, **kwargs)
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            return response
+        location = response.headers.get("location")
+        if not location:
+            return response
+        current_url = urljoin(current_url, location)
+        await response.aclose()
+        if response.status_code in {301, 302, 303}:
+            current_method = "GET"
+    raise ValueError("Too many redirects")
 
 
 async def resolve_downloadwella_http(
-    url: str, timeout: float = SCRAPER_HTTP_TIMEOUT
+    url: str, timeout: float = SCRAPER_HTTP_TIMEOUT, host: str = "downloadwella.com"
 ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """
     Async HTTP bypass for Downloadwella.
     Emulates the XFS 'op=download2' form submission.
     Returns: (direct_url, file_name, file_size, error_message)
     """
+    if not is_safe_external_url(url, {host}):
+        return None, None, None, f"URL must be an HTTPS {host} URL"
     headers = {
         "User-Agent": DEFAULT_USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": url,
-        "Origin": "https://downloadwella.com",
+        "Origin": f"https://{host}",
     }
 
     try:
         async with httpx.AsyncClient(
             headers=headers,
             timeout=httpx.Timeout(timeout, connect=5.0),
-            follow_redirects=True,
+            follow_redirects=False,
         ) as client:
-            resp = await client.get(url)
+            resp = await _safe_request(client, "GET", url, {host})
             if resp.status_code != 200:
                 return None, None, None, f"Failed to load download page: HTTP {resp.status_code}"
 
@@ -60,17 +85,22 @@ async def resolve_downloadwella_http(
                 post_data["op"] = "download2"
 
             if not post_data.get("id"):
-                id_match = re.search(r"downloadwella\.com/([a-zA-Z0-9]+)", url)
+                id_match = re.search(rf"{re.escape(host)}/([a-zA-Z0-9]+)", url)
                 if id_match:
                     post_data["id"] = id_match.group(1)
 
             post_url = form.get("action") or url
             if not post_url.startswith("http"):
-                post_url = "https://downloadwella.com" + (
+                post_url = f"https://{host}" + (
                     post_url if post_url.startswith("/") else f"/{post_url}"
                 )
+            if not is_safe_external_url(post_url, {host}):
+                return None, None, None, "Download form action is not an approved URL"
 
-            step2_resp = await client.post(post_url, data=post_data, headers=headers)
+            step2_resp = await _safe_request(
+                client, "POST", post_url, {host},
+                data=post_data, headers=headers,
+            )
             if step2_resp.status_code != 200:
                 return None, None, None, f"Download link generation failed: HTTP {step2_resp.status_code}"
 
@@ -121,7 +151,17 @@ async def resolve_download_link(
     Pure HTTP only. No browser automation — keeps memory stable on constrained
     hosts (Render free/starter, small containers).
     """
-    direct_url, file_name, file_size, err = await resolve_downloadwella_http(url)
+    try:
+        hostname = (urlparse(url).hostname or "").lower().rstrip(".")
+    except ValueError:
+        hostname = ""
+
+    host = next((allowed for allowed in ("downloadwella.com", "wetafiles.com")
+                 if hostname == allowed or hostname.endswith("." + allowed)), None)
+    if host is None:
+        return None, None, None, "URL must be an HTTPS Downloadwella or Wetafiles URL"
+
+    direct_url, file_name, file_size, err = await resolve_downloadwella_http(url, host=host)
     if direct_url:
         return direct_url, file_name, file_size, None
     return None, None, None, err or "HTTP bypass failed"
