@@ -109,9 +109,17 @@ HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
-# Thenkiri is embedded in this process.  Keeping one client lets the API reuse
-# connections to the upstream site without requiring a second web service.
-thenkiri_client = ThenkiriClient()
+# The merged API can run without the optional Thenkiri scraper service. Keep
+# this disabled by default so deployments such as Render do not call the
+# unfinished in-process scraper client. Enable it explicitly only when the
+# scraper implementation and its upstream provider are available.
+THENKIRI_ENABLED = os.getenv("ENABLE_THENKIRI_SCRAPER", "false").lower() in {
+    "1", "true", "yes", "on"
+}
+
+# Do not even initialize the client in the normal API deployment, where the
+# scraper is intentionally not part of the service.
+thenkiri_client = ThenkiriClient() if THENKIRI_ENABLED else None
 
 # TMDB Genre ID to Name Mapping
 TMDB_GENRES = {
@@ -331,7 +339,8 @@ async def lifespan(app: FastAPI):
         task.cancel()
     if _background_tasks:
         await asyncio.gather(*_background_tasks, return_exceptions=True)
-    await thenkiri_client.close()
+    if thenkiri_client is not None:
+        await thenkiri_client.close()
     global _tmdb_client
     if _tmdb_client is not None and not _tmdb_client.is_closed:
         await _tmdb_client.aclose()
@@ -1981,6 +1990,16 @@ async def get_movie_downloads(request: Request, movie_id: str, title: Optional[s
         raise HTTPException(status_code=422, detail="movie_id cannot be empty")
     target_title = title.strip() if title else None
 
+    if not THENKIRI_ENABLED:
+        return MovieDownloadsResponse(
+            movie_id=clean_id,
+            title=target_title or clean_id,
+            available=False,
+            options=[],
+            status="scraper_disabled",
+            error="Download service is disabled for this deployment",
+        )
+
     # If title not provided, attempt to look it up from local movie records or TMDB
     if not target_title:
         try:
@@ -2071,6 +2090,14 @@ async def get_tv_download_options(
 ):
     """Get download options for a TV series, preferring TV-specific results."""
     target_title = title.strip()
+    if not THENKIRI_ENABLED:
+        return TVDownloadResponse(
+            series_id=series_id,
+            series_title=target_title,
+            seasons=[],
+            is_available=False,
+        )
+
     cache_key = indexed_cache_key("tv-downloads", {
         "series_id": series_id,
         "title": target_title,
@@ -2115,6 +2142,13 @@ async def resolve_movie_download(request: Request, body: DownloadResolveRequest)
     Resolve an intermediate hoster link (e.g. Downloadwella) to a direct CDN download link.
     Resolves the hoster link in-process.
     """
+    if not THENKIRI_ENABLED:
+        return DownloadResolveResponse(
+            original_url=body.url,
+            status="scraper_disabled",
+            error="Download service is disabled for this deployment",
+        )
+
     try:
         direct_url, file_name, file_size, error = await resolve_download_link(body.url)
         return DownloadResolveResponse(
