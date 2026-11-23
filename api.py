@@ -109,16 +109,14 @@ HOST = os.getenv("HOST", "0.0.0.0")
 RELOAD = os.getenv("RELOAD", "false").lower() == "true"
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
-# The merged API can run without the optional Thenkiri scraper service. Keep
-# this disabled by default so deployments such as Render do not call the
-# unfinished in-process scraper client. Enable it explicitly only when the
-# scraper implementation and its upstream provider are available.
-THENKIRI_ENABLED = os.getenv("ENABLE_THENKIRI_SCRAPER", "false").lower() in {
+# The scraper is merged into this API process, so it is enabled by default.
+# Set ENABLE_THENKIRI_SCRAPER=false only for deployments that intentionally do
+# not provide download functionality.
+THENKIRI_ENABLED = os.getenv("ENABLE_THENKIRI_SCRAPER", "true").lower() in {
     "1", "true", "yes", "on"
 }
 
-# Do not even initialize the client in the normal API deployment, where the
-# scraper is intentionally not part of the service.
+# Initialize the in-process client only when download functionality is enabled.
 thenkiri_client = ThenkiriClient() if THENKIRI_ENABLED else None
 
 # TMDB Genre ID to Name Mapping
