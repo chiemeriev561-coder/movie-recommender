@@ -316,8 +316,15 @@ class CORSLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         origin = request.headers.get("origin")
         response = await call_next(request)
-        if response.status_code == 400 and origin:
-             logger.warning(f"Possible CORS rejection (400) for origin: {origin}")
+
+        if response.status_code == 400:
+            logger.warning(
+                "HTTP 400 response: method=%s, path=%s, origin=%s",
+                request.method,
+                request.url.path,
+                origin or "none",
+            )
+
         return response
 
 def refresh_favorites_state() -> None:
