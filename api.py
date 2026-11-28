@@ -2276,23 +2276,21 @@ async def add_to_favorites(request: Request, favorite: FavoriteRequest):
         if not name:
             raise HTTPException(status_code=422, detail="Movie name cannot be empty")
 
-        # Validate before mutating the user's profile. Previously an invalid
-        # movie was added to fav_keys_* and the endpoint still returned 200.
-        movie_recommender._update_movies_map_if_needed()
-        if (name.strip().lower(), year) not in movie_recommender._movies_map:
-            raise HTTPException(status_code=400, detail="Not found or already in favorites")
-
-        # Always attach this favorite to the user's personalization profile,
-        # including when it is already present in the global favorites file.
+        # Always track for personalization (works for both local-dataset and TMDB-only titles)
         add_user_favorite_key(user_ip, name, year)
         update_user_preferences_from_favorites(user_ip)
 
-        # The global file contains local-dataset movies only. Its failure must
-        # not prevent personalization from remembering the user's key.
-        success = add_favorite(name, year, FAVORITES_FILE)
-        if success:
-            return {"message": "Added to favorites"}
+        # Only try to write to the global favorites file if the movie exists locally
+        movie_recommender._update_movies_map_if_needed()
+        if (name.lower(), year) in movie_recommender._movies_map:
+            success = add_favorite(name, year, FAVORITES_FILE)
+            if success:
+                return {"message": "Added to favorites"}
+            return {"message": "Already in favorites"}
+
+        # TMDB-only title — personalization is already updated, just report success
         return {"message": "Favorite registered for recommendations"}
+
     except HTTPException:
         raise
     except Exception as e:
